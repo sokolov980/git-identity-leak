@@ -1,12 +1,10 @@
+# git_identity_leak/images.py
 import os
-from PIL import Image  # make sure Pillow is installed
+import requests
+from PIL import Image
 from datetime import datetime
 
 def analyze_images(image_dir):
-    """
-    Analyze images in the given directory for metadata, faces, etc.
-    Returns a list of signals for each image.
-    """
     results = []
 
     if not os.path.isdir(image_dir):
@@ -16,9 +14,8 @@ def analyze_images(image_dir):
     for fname in os.listdir(image_dir):
         path = os.path.join(image_dir, fname)
         if not os.path.isfile(path):
-            continue  # skip subdirectories
+            continue
 
-        # Placeholder: Basic metadata extraction
         metadata = {}
         try:
             with Image.open(path) as img:
@@ -30,11 +27,36 @@ def analyze_images(image_dir):
 
         results.append({
             "value": fname,
-            "confidence": 0.5,  # placeholder confidence
+            "confidence": 0.5,
             "signal_type": "INFERENCE",
             "evidence": f"File exists: {fname}, metadata: {metadata}",
             "first_seen": datetime.utcnow().isoformat(),
             "last_seen": datetime.utcnow().isoformat()
         })
+
+    return results
+
+def fetch_images_from_urls(urls, temp_dir="images"):
+    os.makedirs(temp_dir, exist_ok=True)
+    results = []
+
+    for url in urls:
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                filename = os.path.join(temp_dir, url.split("/")[-1])
+                with open(filename, "wb") as f:
+                    f.write(resp.content)
+                img = Image.open(filename)
+                results.append({
+                    "value": filename,
+                    "confidence": 0.9,
+                    "signal_type": "IMAGE",
+                    "evidence": url,
+                    "first_seen": datetime.utcnow().isoformat(),
+                    "last_seen": datetime.utcnow().isoformat()
+                })
+        except Exception as e:
+            print(f"[!] Failed to fetch image {url}: {e}")
 
     return results
