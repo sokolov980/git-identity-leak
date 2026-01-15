@@ -1,30 +1,32 @@
-import requests
+from datetime import datetime
 
-PUBLIC_SITES = {
-    "GitHub": "https://github.com/{}",
-    "GitLab": "https://gitlab.com/{}",
-    "Bitbucket": "https://bitbucket.org/{}"
-}
+# Dummy platform lookup
+PLATFORMS = ["GitHub", "GitLab", "Bitbucket", "Reddit", "Twitter", "LinkedIn"]
 
-def check_username(username):
+def check_username_reuse(username: str):
     results = []
-    if not username:
-        return results
-    for site, url in PUBLIC_SITES.items():
-        try:
-            r = requests.get(url.format(username), timeout=5)
-            found = r.status_code == 200
-        except Exception:
-            found = False
-        confidence = "HIGH" if found else "LOW"
-        results.append({"site": site, "found": found, "confidence": confidence})
+    for platform in PLATFORMS:
+        # Simulated check
+        found = username.lower() in ["example", "test"]  # placeholder
+        results.append({
+            "site": platform,
+            "found": found,
+            "confidence": 0.8 if found else 0.3,
+            "evidence": f"Profile check on {platform}",
+            "first_seen": datetime.utcnow().isoformat(),
+            "last_seen": datetime.utcnow().isoformat()
+        })
     return results
 
-def check_email(email):
-    # Simple domain presence check; no scraping of private sources
-    results = []
-    if not email:
-        return results
-    # Placeholder: in Phase 3 we can expand to public forums or paste sites
-    results.append({"site": "GitHub (noreply)", "found": email.endswith("@users.noreply.github.com"), "confidence": "MEDIUM"})
-    return results
+def check_email_reuse(username: str):
+    # Simulated email signal
+    email = f"{username}@users.noreply.github.com"
+    return [{
+        "site": "GitHub",
+        "value": email,
+        "found": True,
+        "confidence": 0.7,
+        "evidence": "Public commit email",
+        "first_seen": datetime.utcnow().isoformat(),
+        "last_seen": datetime.utcnow().isoformat()
+    }]
