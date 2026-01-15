@@ -1,24 +1,26 @@
-# images.py
+# git-identity-leak/images.py
 
 import os
 import requests
+from PIL import Image
+from io import BytesIO
 
-def fetch_images_from_urls(url_list, temp_dir="images"):
+def fetch_images_from_urls(urls, temp_dir="./images"):
     """
-    Download images from URLs into a directory and return as signals
+    Download images from URLs and save locally.
+    Returns list of dict signals.
     """
     os.makedirs(temp_dir, exist_ok=True)
     signals = []
 
-    for url in url_list:
+    for url in urls:
         try:
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
+            img = Image.open(BytesIO(r.content))
             filename = os.path.join(temp_dir, os.path.basename(url))
-            resp = requests.get(url, stream=True)
-            if resp.status_code == 200:
-                with open(filename, "wb") as f:
-                    for chunk in resp.iter_content(1024):
-                        f.write(chunk)
-                signals.append({"signal_type": "IMAGE", "value": filename, "confidence": "HIGH", "source": "images.py"})
+            img.save(filename)
+            signals.append({"signal_type": "image", "value": filename, "confidence": 1.0})
         except Exception as e:
             print(f"[!] Failed to fetch image {url}: {e}")
 
