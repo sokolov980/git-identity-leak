@@ -1,20 +1,34 @@
-# plugins/linkedin.py
-
+# git_identity_leak/plugins/linkedin.py
 import requests
-from bs4 import BeautifulSoup
 
 def collect(username):
     """
-    Attempt to collect public LinkedIn info based on profile URL
+    Check if a public LinkedIn profile exists for the username.
+    Returns a signal dict.
     """
     signals = []
-    profile_url = f"https://www.linkedin.com/in/{username}"
+    linkedin_url = f"https://www.linkedin.com/in/{username}/"
+
     try:
-        resp = requests.get(profile_url)
-        if resp.status_code == 200:
-            signals.append({"signal_type": "PROFILE_PLATFORM", "value": profile_url, "confidence": "MEDIUM", "source": "LinkedIn"})
+        response = requests.head(linkedin_url, timeout=10, allow_redirects=True)
+        if response.status_code == 200:
+            signals.append({
+                "signal_type": "PROFILE_LINKEDIN",
+                "value": f"Public LinkedIn profile detected for {username}",
+                "confidence": "MEDIUM"
+            })
         else:
-            signals.append({"signal_type": "PROFILE_PLATFORM", "value": "No public LinkedIn profile detected", "confidence": "LOW", "source": "LinkedIn"})
-    except Exception as e:
-        print(f"[!] Error collecting LinkedIn data: {e}")
+            signals.append({
+                "signal_type": "PROFILE_LINKEDIN",
+                "value": "No public LinkedIn profile detected",
+                "confidence": "LOW"
+            })
+
+    except requests.exceptions.RequestException:
+        signals.append({
+            "signal_type": "PROFILE_LINKEDIN",
+            "value": f"Unable to verify LinkedIn profile for {username}",
+            "confidence": "LOW"
+        })
+
     return signals
