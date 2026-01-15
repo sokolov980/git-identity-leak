@@ -1,46 +1,64 @@
-# git-identity-leak/analysis.py
-
-from plugins import load_plugins
-from images import fetch_images_from_urls
+# git_identity_leak/analysis.py
+import os
 from datetime import datetime
+from .plugins import load_plugins
+from .images import fetch_images_from_urls, fetch_github_avatar, fetch_repo_images
 
-def normalize_signal(signal, signal_type):
-    """
-    Ensure all signals have the same dict structure.
-    """
-    value = signal.get("value") or signal.get("username") or signal.get("email") or signal.get("image")
-    confidence = signal.get("confidence", 0.5)
-    return {"signal_type": signal_type, "value": value, "confidence": confidence}
-
-def full_analysis(username, image_dir=None, include_stylometry=False, include_temporal=False):
+def full_analysis(username, image_dir="images", include_stylometry=False, include_temporal=False):
     """
     Perform full OSINT analysis on a username.
 
+    Args:
+        username (str): Target username.
+        image_dir (str): Directory to store downloaded images.
+        include_stylometry (bool): Whether to include stylometry analysis.
+        include_temporal (bool): Whether to include temporal analysis.
+
     Returns:
-        signals (list of dict)
-        temporal_data (dict)
-        stylometry_data (dict)
+        signals (list): List of identity signals.
+        temporal_data (dict): Temporal analysis results.
+        stylometry_data (dict): Stylometry analysis results.
     """
     signals = []
 
-    # Load all plugins
+    # -------------------
+    # Load and run plugins
+    # -------------------
     plugins = load_plugins(["github", "reddit", "x", "linkedin"])
     for plugin in plugins:
         try:
             plugin_signals = plugin.collect(username)
-            for sig in plugin_signals:
-                signals.append(normalize_signal(sig, sig.get("signal_type", "unknown")))
+            # Ensure signals are dicts with required keys
+            for s in plugin_signals:
+                if isinstance(s, dict) and "signal_type" in s and "value" in s:
+                    signals.append(s)
         except Exception as e:
-            plugin_name = getattr(plugin, "__name__", "unknown")
-            print(f"[!] Error running plugin {plugin_name}: {e}")
+            print(f"[!] Error running plugin {plugin.__name__}: {e}")
 
-    # Fetch images from signals
-    image_urls = [s["value"] for s in signals if s["signal_type"] == "image" and s.get("value")]
-    if image_dir and image_urls:
-        image_signals = fetch_images_from_urls(image_urls, temp_dir=image_dir)
-        signals.extend(image_signals)
+    # -------------------
+    # Fetch images
+    # -------------------
+    image_signals = []
 
-    # Temporal analysis placeholder
+    # 1. GitHub avatar
+    avatar_signal = fetch_github_avatar(username, save_dir=image_dir)
+    if avatar_signal:
+        image_signals.append(avatar_signal)
+
+    # 2. Repo README images
+    image_signals.extend(fetch_repo_images(username, save_dir=image_dir))
+
+    # 3. Plugin-provided image URLs
+    plugin_image_urls = [s["value"] for s in signals if s.get("signal_type") == "IMAGE" and s.get("value")]
+    if plugin_image_urls:
+        image_signals.extend(fetch_images_from_urls(plugin_image_urls, temp_dir=image_dir))
+
+    # Add all image signals to main signals
+    signals.extend(image_signals)
+
+    # -------------------
+    # Temporal analysis
+    # -------------------
     temporal_data = {}
     if include_temporal:
         temporal_data = {
@@ -49,7 +67,9 @@ def full_analysis(username, image_dir=None, include_stylometry=False, include_te
             "duration_days": 0
         }
 
-    # Stylometry analysis placeholder
+    # -------------------
+    # Stylometry analysis
+    # -------------------
     stylometry_data = {}
     if include_stylometry:
         stylometry_data = {
