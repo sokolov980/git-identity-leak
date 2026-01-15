@@ -1,28 +1,30 @@
+# self_audit.py
+
 from analysis import analyze_username, analyze_email, analyze_posts
-from graph import build_identity_graph
-from risk import compute_risk
-from inference import apply_inference
 
-def self_audit(username: str = None):
+def self_audit(username):
     """
-    Runs a full analysis on yourself and outputs actionable leaks.
+    Simple self-audit that checks username, email, and posts.
+    Prints a report summary.
     """
-    if not username:
-        print("[!] Please provide a username for self-audit.")
-        return
-
     signals = []
+
+    # Collect signals
     signals.extend(analyze_username(username))
     signals.extend(analyze_email(username))
     signals.extend(analyze_posts(username))
 
-    signals = apply_inference(signals)
-    graph = build_identity_graph(signals)
-    risk_summary = compute_risk(signals, graph)
+    # Calculate a simple risk score (example)
+    risk_score = 0
+    for s in signals:
+        risk_score += s.get("confidence", 0)
+
+    # Normalize risk (0–1)
+    risk_score = min(risk_score / 3, 1.0)
 
     print("\n=== SELF-AUDIT REPORT ===")
-    print(f"Overall re-identification risk: {risk_summary['overall_risk']}")
+    print(f"Overall re-identification risk: {'HIGH' if risk_score > 0.7 else 'MEDIUM' if risk_score > 0.4 else 'LOW'}")
     print("Key drivers:")
-    for d in risk_summary["drivers"]:
-        print(f" - {d['driver']} (score {d['score']:.2f})")
+    for s in signals:
+        print(f" - {s['signal_type'].capitalize()}: {s['value']} (score {s['confidence']})")
     print("==========================\n")
