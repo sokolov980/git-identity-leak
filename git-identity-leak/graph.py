@@ -1,40 +1,29 @@
-# git-identity-leak/graph.py
-
+# git_identity_leak/graph.py
 import networkx as nx
 import json
-from networkx.readwrite import json_graph
 
 def build_identity_graph(signals):
     """
-    Build a NetworkX graph from signals.
+    Build a graph from signals where each unique value is a node.
     """
     G = nx.Graph()
-
     for s in signals:
-        value = s.get("value")
-        signal_type = s.get("signal_type", "unknown")
-        if not value:
+        if "value" not in s or "signal_type" not in s:
             continue
-        node_id = f"{signal_type}:{value}"
-        G.add_node(node_id, **s)
+        node_id = f"{s['signal_type']}:{s['value']}"
+        G.add_node(node_id, type=s['signal_type'], confidence=s.get('confidence', 'LOW'))
 
-    # Connect usernames to emails and images
-    usernames = [s for s in signals if s.get('signal_type') == 'username' and s.get('value')]
-    emails = [s for s in signals if s.get('signal_type') == 'email' and s.get('value')]
-    images = [s for s in signals if s.get('signal_type') == 'image' and s.get('value')]
-
-    for u in usernames:
-        u_id = f"{u['signal_type']}:{u['value']}"
-        for e in emails:
-            e_id = f"{e['signal_type']}:{e['value']}"
-            G.add_edge(u_id, e_id)
-        for img in images:
-            img_id = f"{img['signal_type']}:{img['value']}"
-            G.add_edge(u_id, img_id)
-
+    # Connect all nodes to NAME nodes for identity mapping
+    name_nodes = [f"{s['signal_type']}:{s['value']}" for s in signals if s.get("signal_type") == "NAME"]
+    for n in name_nodes:
+        for s in signals:
+            if "value" in s:
+                node_id = f"{s['signal_type']}:{s['value']}"
+                if node_id != n:
+                    G.add_edge(n, node_id)
     return G
 
-def save_graph_json(G, filepath):
-    data = json_graph.node_link_data(G)
-    with open(filepath, "w") as f:
+def save_graph_json(graph, path):
+    data = nx.node_link_data(graph)
+    with open(path, "w") as f:
         json.dump(data, f, indent=2)
