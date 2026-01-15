@@ -1,2 +1,0 @@
-def collect(username):
-    return []
