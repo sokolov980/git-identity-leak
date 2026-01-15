@@ -1,0 +1,2 @@
+def collect(username):
+    return []
