@@ -1,20 +1,23 @@
+# plugins/__init__.py
+
 import importlib
 
-# Map internal plugin names to display names for warnings
+# Map internal plugin names to friendly display names for warnings
 PLUGIN_NAME_MAP = {
     "reddit": "Reddit",
     "x": "X (formerly Twitter)",
-    "linkedin": "LinkedIn"
+    "linkedin": "LinkedIn",
+    "github": "GitHub"
 }
 
 def load_plugins(plugin_list):
     """
     Dynamically load plugins by name.
-    If a plugin is missing, prints a friendly warning but does not crash.
+    Prints a friendly warning if missing but does not crash.
     """
     plugins = []
     for plugin_name in plugin_list:
-        module_path = f"git_identity_leak.plugins.{plugin_name}"
+        module_path = f"plugins.{plugin_name}"
         try:
             module = importlib.import_module(module_path)
             plugins.append(module)
