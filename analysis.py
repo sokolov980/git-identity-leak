@@ -2,7 +2,7 @@ from schemas import Signal
 from github_api import fetch_commits
 from reuse import check_username_reuse, check_email_reuse
 from images import analyze_images
-from posts import analyze_posts
+from posts import analyze_posts as fetch_posts  # FIXED: renamed to avoid recursion
 from inference import apply_inference
 from temporal import analyze_temporal
 from stylometry import analyze_stylometry
@@ -26,7 +26,7 @@ def analyze_username(username: str) -> List[Signal]:
         ))
 
     # Plugin-based additional username collection
-    plugins = load_plugins(["reddit", "x", "linkedin"])
+    plugins = load_plugins(["reddit", "twitter", "linkedin"])  # will warn if missing
     for plugin in plugins:
         try:
             plugin_signals = plugin.collect(username)
@@ -57,7 +57,8 @@ def analyze_email(username: str) -> List[Signal]:
 def analyze_posts(username: str) -> List[Signal]:
     signals = []
 
-    post_results = analyze_posts(username)
+    # FIXED: call posts.py function instead of itself
+    post_results = fetch_posts(username)
     for p in post_results:
         signals.append(Signal(
             type="post",
