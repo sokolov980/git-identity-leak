@@ -1,9 +1,7 @@
 import argparse
-from analysis import analyze_username, analyze_email, analyze_posts
+from analysis import full_analysis
 from graph import build_identity_graph, save_graph_json
-from report import generate_report
 from risk import compute_risk
-from inference import apply_inference
 from self_audit import self_audit
 
 def main():
@@ -12,51 +10,66 @@ def main():
     parser.add_argument("--check-username", action="store_true")
     parser.add_argument("--check-email", action="store_true")
     parser.add_argument("--check-posts", action="store_true")
+    parser.add_argument("--images", type=str, help="Directory with images")
     parser.add_argument("--graph-output", type=str, help="Save identity graph JSON")
     parser.add_argument("--output", type=str, help="Save structured report JSON")
     parser.add_argument("--self-audit", action="store_true")
     parser.add_argument("--temporal", action="store_true")
     parser.add_argument("--stylometry", action="store_true")
-    parser.add_argument("--plugins", nargs="*", help="Specify plugin modules to run")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
-    if args.self_audit:
-        self_audit()
+    if args.self_audit and args.username:
+        self_audit(args.username)
+        return
 
-    findings = []
+    if not args.username:
+        print("[!] Please provide a username for analysis or self-audit")
+        return
 
-    if args.check_username and args.username:
-        username_signals = analyze_username(args.username)
-        findings.extend(username_signals)
+    # Run full analysis
+    signals, temporal_data, stylometry_data = full_analysis(
+        username=args.username,
+        image_dir=args.images,
+        include_temporal=args.temporal,
+        include_stylometry=args.stylometry
+    )
 
-    if args.check_email and args.username:
-        email_signals = analyze_email(args.username)
-        findings.extend(email_signals)
-
-    if args.check_posts and args.username:
-        post_signals = analyze_posts(args.username)
-        findings.extend(post_signals)
-
-    # Apply inference logic
-    findings = apply_inference(findings)
-
-    # Build identity graph
-    graph = build_identity_graph(findings)
+    # Build confidence-weighted identity graph
+    graph = build_identity_graph(signals)
 
     if args.graph_output:
         save_graph_json(graph, args.graph_output)
+        if args.verbose:
+            print(f"[+] Graph saved to {args.graph_output}")
 
-    # Compute risk scores
-    risk_summary = compute_risk(findings, graph)
+    # Compute risk summary
+    risk_summary = compute_risk(signals, graph)
 
-    # Generate report
     if args.output:
-        generate_report(findings, risk_summary, args.output)
+        import json
+        report = {
+            "signals": [s.__dict__ for s in signals],
+            "temporal": temporal_data,
+            "stylometry": stylometry_data,
+            "risk_summary": risk_summary
+        }
+        with open(args.output, "w") as f:
+            json.dump(report, f, indent=2)
+        if args.verbose:
+            print(f"[+] Report saved to {args.output}")
 
+    # Verbose CLI output
     if args.verbose:
-        print("[DEBUG] Findings:", findings)
-        print("[DEBUG] Risk summary:", risk_summary)
+        print("\n[DEBUG] Signals:")
+        for s in signals:
+            print(f" - {s.type}:{s.value} ({s.signal_type}, conf={s.confidence})")
+        print("\n[DEBUG] Temporal data:", temporal_data)
+        print("\n[DEBUG] Stylometry data:", stylometry_data)
+        print("\n[DEBUG] Risk summary:", risk_summary)
+
+    print(f"\n[+] Overall risk: {risk_summary['overall_risk']}")
+    print("[+] Analysis complete.")
 
 if __name__ == "__main__":
     main()
