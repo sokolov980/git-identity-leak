@@ -26,7 +26,7 @@ def analyze_username(username: str) -> List[Signal]:
         ))
 
     # Plugin-based additional username collection
-    plugins = load_plugins(["reddit", "twitter", "linkedin"])  # will warn if missing
+    plugins = load_plugins(["reddit", "x", "linkedin"])  # will warn if missing
     for plugin in plugins:
         try:
             plugin_signals = plugin.collect(username)
