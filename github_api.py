@@ -1,38 +1,22 @@
 import requests
-import time
+from datetime import datetime
 
 GITHUB_API = "https://api.github.com"
 
-def fetch_repos(username):
-    url = f"{GITHUB_API}/users/{username}/repos"
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except requests.RequestException:
+def fetch_commits(username: str):
+    url = f"{GITHUB_API}/users/{username}/events/public"
+    r = requests.get(url)
+    if r.status_code != 200:
         return []
-
-def fetch_commit_metadata(username, max_commits=50):
-    repos = fetch_repos(username)
-    commits_data = []
-
-    for repo in repos:
-        if repo.get("fork"):
-            continue
-        commits_url = f"{GITHUB_API}/repos/{username}/{repo['name']}/commits"
-        try:
-            r = requests.get(commits_url, timeout=10)
-            r.raise_for_status()
-            for commit in r.json()[:max_commits]:
-                c = commit.get("commit", {}).get("author", {})
-                commits_data.append({
-                    "repo": repo["name"],
-                    "author_name": c.get("name"),
-                    "author_email": c.get("email"),
-                    "timestamp": c.get("date")
+    events = r.json()
+    commits = []
+    for e in events:
+        if e["type"] == "PushEvent":
+            for commit in e["payload"]["commits"]:
+                commits.append({
+                    "author_name": commit["author"]["name"],
+                    "author_email": commit["author"]["email"],
+                    "message": commit["message"],
+                    "timestamp": e["created_at"]
                 })
-            time.sleep(0.5)  # simple rate-limit mitigation
-        except requests.RequestException:
-            continue
-
-    return commits_data
+    return commits
