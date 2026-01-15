@@ -1,27 +1,22 @@
 from PIL import Image
-from PIL.ExifTags import TAGS
 import os
+import hashlib
 
-def analyze_images(folder):
-    results = []
-    if not folder or not os.path.isdir(folder):
-        return results
-
-    for filename in os.listdir(folder):
-        if not filename.lower().endswith((".jpg", ".jpeg", ".png")):
+def analyze_images(image_dir: str):
+    signals = []
+    for fname in os.listdir(image_dir):
+        if not fname.lower().endswith((".png", ".jpg", ".jpeg")):
             continue
-        path = os.path.join(folder, filename)
-        exif_data = {}
-        confidence = "LOW"
-        try:
-            with Image.open(path) as img:
-                info = img._getexif()
-                if info:
-                    for tag, value in info.items():
-                        decoded = TAGS.get(tag, tag)
-                        exif_data[decoded] = value
-                    confidence = "MEDIUM" if exif_data else "LOW"
-        except Exception:
-            pass
-        results.append({"filename": filename, "exif": exif_data, "confidence": confidence})
-    return results
+        path = os.path.join(image_dir, fname)
+        img = Image.open(path)
+        # Compute a simple hash for reuse detection
+        h = hashlib.md5(img.tobytes()).hexdigest()
+        signals.append({
+            "type": "image",
+            "value": fname,
+            "hash": h,
+            "confidence": 0.5,
+            "signal_type": "INFERENCE",
+            "evidence": "Image hash metadata"
+        })
+    return signals
