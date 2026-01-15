@@ -8,16 +8,8 @@ def full_analysis(username, image_dir=None, include_stylometry=False, include_te
     """
     Perform full OSINT analysis on a username.
 
-    Args:
-        username (str): Target username.
-        image_dir (str, optional): Directory to store images.
-        include_stylometry (bool): Include stylometry analysis if True.
-        include_temporal (bool): Include temporal analysis if True.
-
     Returns:
-        signals (list): List of identity signals.
-        temporal_data (dict): Temporal analysis results.
-        stylometry_data (dict): Stylometry analysis results.
+        signals (list), temporal_data (dict), stylometry_data (dict)
     """
     signals = []
 
@@ -33,12 +25,12 @@ def full_analysis(username, image_dir=None, include_stylometry=False, include_te
     # Extract image URLs from plugin signals
     image_urls = [s["value"] for s in signals if s.get("signal_type") == "IMAGE"]
 
-    # Fetch remote images and analyze locally
+    # Fetch images
     if image_dir and image_urls:
         image_signals = fetch_images_from_urls(image_urls, temp_dir=image_dir)
         signals.extend(image_signals)
 
-    # Placeholder for temporal and stylometry analysis
+    # Placeholder temporal and stylometry data
     temporal_data = {}
     stylometry_data = {}
 
@@ -56,3 +48,18 @@ def full_analysis(username, image_dir=None, include_stylometry=False, include_te
         }
 
     return signals, temporal_data, stylometry_data
+
+
+# --- Add separate analysis functions for self_audit ---
+def analyze_username(username):
+    # Example: just return username signal
+    return [{"signal_type": "USERNAME", "value": username, "confidence": 0.9, "source": "self_audit"}]
+
+def analyze_email(username):
+    # Example: detect GitHub noreply email pattern
+    return [{"signal_type": "EMAIL", "value": f"{username}+123456@users.noreply.github.com",
+             "confidence": 0.7, "source": "self_audit"}]
+
+def analyze_posts(username):
+    # Example placeholder: returns empty post list
+    return [{"signal_type": "POST", "value": "", "confidence": 0.1, "source": "self_audit"}]
