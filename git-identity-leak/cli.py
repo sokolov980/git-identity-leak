@@ -1,13 +1,13 @@
-# git_identity_leak/cli.py
+# cli.py
 
 import argparse
 import os
 import json
 
-from .analysis import full_analysis
-from .graph import build_identity_graph, save_graph_json
-from .report import save_report
-from .self_audit import self_audit
+from analysis import full_analysis
+from graph import build_identity_graph, save_graph_json
+from report import save_report
+from self_audit import self_audit
 
 def main():
     parser = argparse.ArgumentParser(description="Git Identity Leak: OSINT tool for digital footprint analysis")
