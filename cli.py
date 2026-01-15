@@ -1,55 +1,62 @@
 import argparse
-from github_api import fetch_commit_metadata
-from analysis import analyze_commits
-from report import print_report, save_json
-from images import analyze_images
-from reuse import check_username, check_email
-from posts import analyze_posts
+from analysis import analyze_username, analyze_email, analyze_posts
 from graph import build_identity_graph, save_graph_json
+from report import generate_report
+from risk import compute_risk
+from inference import apply_inference
+from self_audit import self_audit
 
 def main():
-    parser = argparse.ArgumentParser(description="Full OSINT identity analyzer")
-    parser.add_argument("--username", required=True, help="GitHub username to analyze")
-    parser.add_argument("--max-commits", type=int, default=50)
-    parser.add_argument("--images", help="Folder with images to analyze")
+    parser = argparse.ArgumentParser(description="Git Identity Leak OSINT Tool")
+    parser.add_argument("--username", type=str, help="Username to analyze", required=False)
     parser.add_argument("--check-username", action="store_true")
     parser.add_argument("--check-email", action="store_true")
-    parser.add_argument("--check-posts", action="store_true", help="Analyze public posts")
-    parser.add_argument("--output", help="JSON report file")
-    parser.add_argument("--graph-output", help="Save identity graph JSON")
+    parser.add_argument("--check-posts", action="store_true")
+    parser.add_argument("--graph-output", type=str, help="Save identity graph JSON")
+    parser.add_argument("--output", type=str, help="Save structured report JSON")
+    parser.add_argument("--self-audit", action="store_true")
+    parser.add_argument("--temporal", action="store_true")
+    parser.add_argument("--stylometry", action="store_true")
+    parser.add_argument("--plugins", nargs="*", help="Specify plugin modules to run")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
-    commits = fetch_commit_metadata(args.username, max_commits=args.max_commits)
-    findings = analyze_commits(args.username, commits) if commits else {}
+    if args.self_audit:
+        self_audit()
 
-    if args.images:
-        findings["images"] = analyze_images(args.images)
+    findings = []
 
-    if args.check_username:
-        findings["username_reuse"] = check_username(args.username)
+    if args.check_username and args.username:
+        username_signals = analyze_username(args.username)
+        findings.extend(username_signals)
 
-    if args.check_email and commits:
-        email = None
-        for c in commits:
-            if c.get("author_email"):
-                email = c["author_email"]
-                break
-        findings["email_reuse"] = check_email(email)
+    if args.check_email and args.username:
+        email_signals = analyze_email(args.username)
+        findings.extend(email_signals)
 
-    if args.check_posts:
-        findings["posts"] = analyze_posts(args.username)
+    if args.check_posts and args.username:
+        post_signals = analyze_posts(args.username)
+        findings.extend(post_signals)
 
-    print_report(args.username, findings, verbose=args.verbose)
+    # Apply inference logic
+    findings = apply_inference(findings)
 
-    if args.output:
-        save_json(findings, args.output)
+    # Build identity graph
+    graph = build_identity_graph(findings)
 
     if args.graph_output:
-        G = build_identity_graph(findings)
-        save_graph_json(G, args.graph_output)
-        if args.verbose:
-            print(f"[DEBUG] Graph saved to {args.graph_output}")
+        save_graph_json(graph, args.graph_output)
+
+    # Compute risk scores
+    risk_summary = compute_risk(findings, graph)
+
+    # Generate report
+    if args.output:
+        generate_report(findings, risk_summary, args.output)
+
+    if args.verbose:
+        print("[DEBUG] Findings:", findings)
+        print("[DEBUG] Risk summary:", risk_summary)
 
 if __name__ == "__main__":
     main()
