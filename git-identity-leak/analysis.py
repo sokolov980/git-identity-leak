@@ -1,7 +1,7 @@
-# git_identity_leak/analysis.py
+# analysis.py
 
-from .plugins import load_plugins
-from .images import fetch_images_from_urls
+from plugins import load_plugins
+from images import fetch_images_from_urls
 from datetime import datetime
 
 def full_analysis(username, image_dir=None, include_stylometry=False, include_temporal=False):
@@ -31,7 +31,7 @@ def full_analysis(username, image_dir=None, include_stylometry=False, include_te
             print(f"[!] Error running plugin {plugin.__name__}: {e}")
 
     # Extract image URLs from plugin signals
-    image_urls = [s["value"] for s in signals if s["signal_type"] == "IMAGE"]
+    image_urls = [s["value"] for s in signals if s.get("signal_type") == "IMAGE"]
 
     # Fetch remote images and analyze locally
     if image_dir and image_urls:
