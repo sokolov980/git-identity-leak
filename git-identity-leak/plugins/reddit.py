@@ -1,25 +1,51 @@
-# plugins/reddit.py
-
+# git_identity_leak/plugins/reddit.py
 import requests
 
 def collect(username):
     """
-    Fetch public Reddit posts/comments for a username
+    Collect public posts from Reddit for a given username.
+    Returns a list of signal dicts.
     """
     signals = []
+    reddit_url = f"https://www.reddit.com/user/{username}/.json"
+    headers = {"User-Agent": "git-identity-leak-osint/1.0"}
+
     try:
-        url = f"https://www.reddit.com/user/{username}/submitted.json"
-        headers = {"User-Agent": "git-identity-leak-bot"}
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 200:
-            data = resp.json()
-            posts = data.get("data", {}).get("children", [])
-            if posts:
-                signals.append({"signal_type": "POST_PLATFORM", "value": f"Reddit posts found ({len(posts)})", "confidence": "MEDIUM", "source": "Reddit"})
-            else:
-                signals.append({"signal_type": "POST_PLATFORM", "value": "No Reddit posts detected", "confidence": "LOW", "source": "Reddit"})
+        response = requests.get(reddit_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        children = data.get("data", {}).get("children", [])
+        if not children:
+            signals.append({
+                "signal_type": "POST_REDDIT",
+                "value": "No Reddit posts detected",
+                "confidence": "LOW"
+            })
         else:
-            signals.append({"signal_type": "POST_PLATFORM", "value": "No Reddit posts detected", "confidence": "LOW", "source": "Reddit"})
-    except Exception as e:
-        print(f"[!] Error collecting Reddit data: {e}")
+            for post in children[:10]:  # limit to 10 latest posts
+                post_data = post.get("data", {})
+                title = post_data.get("title") or post_data.get("selftext", "")
+                subreddit = post_data.get("subreddit", "N/A")
+                timestamp = post_data.get("created_utc", "N/A")
+                signals.append({
+                    "signal_type": "POST_REDDIT",
+                    "value": f"{subreddit} | {timestamp}: {title}",
+                    "confidence": "MEDIUM"
+                })
+
+    except requests.exceptions.RequestException:
+        signals.append({
+            "signal_type": "POST_REDDIT",
+            "value": f"Unable to collect Reddit posts for {username}",
+            "confidence": "LOW"
+        })
+    except ValueError:
+        # JSON decode error
+        signals.append({
+            "signal_type": "POST_REDDIT",
+            "value": f"Reddit data for {username} is malformed or unavailable",
+            "confidence": "LOW"
+        })
+
     return signals
