@@ -4,7 +4,7 @@ from datetime import datetime
 
 def collect(username):
     collected_at = datetime.utcnow().isoformat() + "Z"
-    # Use Nitter to avoid Twitter API/SSL issues
+    # Use Nitter to avoid X API/SSL issues
     url = f"https://nitter.net/{username}"
 
     try:
