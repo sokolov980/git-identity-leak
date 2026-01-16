@@ -11,7 +11,11 @@ TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
 def pretty_print_signals(signals, truncate_len=120):
     """
-    Pretty print signals. Structured signals (REPO_SUMMARY, SOCIAL_*, CONTRIBUTIONS) are split into multiple lines for readability.
+    Pretty-print signals. 
+    Special handling for:
+    - REPO_SUMMARY (split into multiple lines)
+    - CONTRIBUTIONS (one per line)
+    - Long text fields are truncated if too long
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -30,14 +34,17 @@ def pretty_print_signals(signals, truncate_len=120):
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
-        # Multi-line formatting for structured signals
-        if signal_type in ["REPO_SUMMARY", "CONTRIBUTIONS", "PROFILE_README", "BADGE", "SOCIAL_TWITTER", "SOCIAL_LINKEDIN", "SOCIAL_MASTODON", "ORCID"]:
-            lines = value.split(" | ") if signal_type == "REPO_SUMMARY" else [value]
-            print(f"{signal_type:<{col_widths[0]}} {lines[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
-            for line in lines[1:]:
-                print(f"{'':<{col_widths[0]}} {line:<{col_widths[1]}}")
+        if signal_type == "REPO_SUMMARY":
+            # Split fields by '|' for clean multi-line display
+            parts = [p.strip() for p in value.split("|")]
+            print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+            for part in parts[1:]:
+                print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
+        elif signal_type == "CONTRIBUTIONS":
+            # Contributions per year, one line per year
+            print(f"{signal_type:<{col_widths[0]}} {value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
         else:
-            # For normal signals, truncate if too long
+            # Truncate long text for other fields
             display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
             print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
