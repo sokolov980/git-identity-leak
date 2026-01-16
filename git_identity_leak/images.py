@@ -1,38 +1,49 @@
 # git_identity_leak/images.py
 import os
 import requests
+from urllib.parse import urlparse
+
+def sanitize_filename(url):
+    """
+    Convert URL into a safe filename.
+    """
+    parsed = urlparse(url)
+    path = parsed.path.lstrip("/").replace("/", "_")
+    if not path:
+        path = "image"
+    ext = path.split(".")[-1] if "." in path else "jpg"
+    return f"{path}.{ext}"
 
 def fetch_images_from_urls(urls, output_dir):
     """
-    Fetch images from a list of URLs and save them to output_dir.
-    Returns a list of signals in standard format.
+    Fetch remote images and save them locally.
+
+    Args:
+        urls (list): List of image URLs.
+        output_dir (str): Directory to save images.
+
+    Returns:
+        list of dict: IMAGE_FILE signals with local paths.
     """
     signals = []
 
-    if not urls:
-        return signals
-
-    os.makedirs(output_dir, exist_ok=True)
-
     for idx, url in enumerate(urls):
-        # Clean URL for filename
-        safe_url = url.replace("://", "/").replace("/", "_").replace("?", "_").replace("&", "_")
-        ext = url.split(".")[-1].split("?")[0]
-        if len(ext) > 5 or not ext.isalnum():
-            ext = "jpg"  # fallback extension
-        filename = os.path.join(output_dir, f"image_{idx}.{ext}")
-
-        # Ensure parent directory exists
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-
         try:
+            filename = sanitize_filename(url)
+            full_path = os.path.join(output_dir, filename)
+
+            # Make sure all parent directories exist
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+            # Fetch the image
             resp = requests.get(url, timeout=10)
             resp.raise_for_status()
-            with open(filename, "wb") as f:
+            with open(full_path, "wb") as f:
                 f.write(resp.content)
+
             signals.append({
                 "signal_type": "IMAGE_FILE",
-                "value": filename,
+                "value": full_path,
                 "confidence": "HIGH"
             })
         except Exception as e:
