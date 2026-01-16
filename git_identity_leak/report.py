@@ -1,18 +1,24 @@
-# report.py
+import importlib
 
-import json
-from datetime import datetime
+PLUGIN_MODULES = {
+    "GitHub": "git_identity_leak.plugins.github",
+    "Reddit": "git_identity_leak.plugins.reddit",
+    "X (formerly Twitter)": "git_identity_leak.plugins.x",
+    "LinkedIn": "git_identity_leak.plugins.linkedin",
+}
 
-def save_report(signals, temporal_data, stylometry_data, filepath):
-    report = {
-        "generated_at": datetime.utcnow().isoformat(),
-        "signals": signals,
-        "temporal": temporal_data,
-        "stylometry": stylometry_data
-    }
-    try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2)
-        print(f"[+] Report successfully saved to {filepath}")
-    except Exception as e:
-        print(f"[!] Failed to save report: {e}")
+
+def load_plugins():
+    plugins = []
+
+    for name, module_path in PLUGIN_MODULES.items():
+        try:
+            module = importlib.import_module(module_path)
+            if hasattr(module, "collect"):
+                plugins.append(module)
+            else:
+                print(f"[!] Plugin {name} missing collect() function. Skipping.")
+        except Exception:
+            print(f"[!] Plugin {name} not found. Skipping.")
+
+    return plugins
