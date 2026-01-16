@@ -6,10 +6,11 @@ def collect(username):
     """
     Collect GitHub OSINT signals for a given username.
     Includes user info, followers, following, public repos, and per-repo details:
-    - Repo README URL
-    - Stars
-    - Description
-    - Main language
+    - Combined REPO_SUMMARY for each repo with:
+        - Stars
+        - Description
+        - Main language
+        - README URL
     """
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
@@ -83,43 +84,18 @@ def collect(username):
             repos = requests.get(repos_url, timeout=10).json()
             for repo in repos:
                 repo_name = repo.get("name", "unknown")
-
-                # Repo README URL
-                readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
-                signals.append({
-                    "signal_type": "REPO_README",
-                    "value": f"{repo_name}:{readme_url}",
-                    "confidence": "MEDIUM",
-                    "source": "GitHub",
-                    "collected_at": collected_at
-                })
-
-                # Stars
                 stars = repo.get("stargazers_count", 0)
-                signals.append({
-                    "signal_type": "REPO_STARS",
-                    "value": f"{repo_name}:{stars}",
-                    "confidence": "MEDIUM",
-                    "source": "GitHub",
-                    "collected_at": collected_at
-                })
-
-                # Description
                 description = repo.get("description") or ""
-                signals.append({
-                    "signal_type": "REPO_DESC",
-                    "value": f"{repo_name}:{description}",
-                    "confidence": "MEDIUM",
-                    "source": "GitHub",
-                    "collected_at": collected_at
-                })
-
-                # Main language
                 language = repo.get("language") or ""
+                readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
+
+                # Combine all repo info into one signal
+                summary = f"{repo_name} | Stars: {stars} | {description} | Lang: {language} | README: {readme_url}"
+
                 signals.append({
-                    "signal_type": "REPO_LANG",
-                    "value": f"{repo_name}:{language}",
-                    "confidence": "MEDIUM",
+                    "signal_type": "REPO_SUMMARY",
+                    "value": summary,
+                    "confidence": "HIGH",
                     "source": "GitHub",
                     "collected_at": collected_at
                 })
