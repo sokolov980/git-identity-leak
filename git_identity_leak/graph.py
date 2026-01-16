@@ -1,18 +1,35 @@
+# git_identity_leak/graph.py
 import networkx as nx
 from networkx.readwrite import json_graph
 import json
 
 def build_identity_graph(signals):
     G = nx.Graph()
+
     for s in signals:
-        if "value" not in s or "signal_type" not in s:
+        stype = s.get("signal_type")
+        value = s.get("value")
+        if not stype or not value:
             continue
-        node_id = f"{s['signal_type']}:{s['value']}"
+
+        node_id = f"{stype}:{value}"
         G.add_node(node_id, **s)
+
+    # Connect nodes with the same entity (basic identity mapping)
+    for i, s1 in enumerate(signals):
+        for j, s2 in enumerate(signals):
+            if i >= j:
+                continue
+            if s1.get("value") == s2.get("value"):
+                n1 = f"{s1.get('signal_type')}:{s1.get('value')}"
+                n2 = f"{s2.get('signal_type')}:{s2.get('value')}"
+                G.add_edge(n1, n2)
+
     return G
 
-def save_graph_json(G, output_path):
+def save_graph_json(path, G):
+    if isinstance(G, str):
+        raise TypeError("G must be a NetworkX graph, not a string")
     data = json_graph.node_link_data(G)
-    with open(output_path, "w") as f:
+    with open(path, "w") as f:
         json.dump(data, f, indent=2)
-    print(f"[+] Graph saved to {output_path}")
