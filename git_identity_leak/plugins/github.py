@@ -4,8 +4,7 @@ from datetime import datetime
 
 def collect(username):
     """
-    Collect GitHub OSINT signals for a given username.
-    Uses only the GitHub REST API v3.
+    Collect GitHub OSINT signals for a given username using GitHub REST API v3.
     Includes:
     - Basic profile info: name, username, avatar, bio, email, company, location, blog
     - Followers, following, public repos
@@ -76,10 +75,12 @@ def collect(username):
                 repo_name = repo.get("name", "unknown")
                 stars = repo.get("stargazers_count", 0)
                 description = repo.get("description") or ""
+                description = description.replace("\n", " ").strip()  # remove newlines
                 language = repo.get("language") or ""
                 updated_at = repo.get("updated_at", "unknown").split("T")[0]
                 readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
 
+                # Combine repo info
                 summary = (
                     f"{repo_name} | Stars: {stars} | {description} | "
                     f"Lang: {language} | Last Updated: {updated_at} | README: {readme_url}"
