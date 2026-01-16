@@ -2,11 +2,10 @@
 import os
 import requests
 from urllib.parse import urlparse
+from datetime import datetime
+import hashlib
 
 def sanitize_filename(url):
-    """
-    Convert URL into a safe filename.
-    """
     parsed = urlparse(url)
     path = parsed.path.lstrip("/").replace("/", "_")
     if not path:
@@ -15,37 +14,31 @@ def sanitize_filename(url):
     return f"{path}.{ext}"
 
 def fetch_images_from_urls(urls, output_dir):
-    """
-    Fetch remote images and save them locally.
-
-    Args:
-        urls (list): List of image URLs.
-        output_dir (str): Directory to save images.
-
-    Returns:
-        list of dict: IMAGE_FILE signals with local paths.
-    """
     signals = []
 
-    for idx, url in enumerate(urls):
+    for url in urls:
         try:
             filename = sanitize_filename(url)
             full_path = os.path.join(output_dir, filename)
-
-            # Make sure all parent directories exist
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
-            # Fetch the image
             resp = requests.get(url, timeout=10)
             resp.raise_for_status()
             with open(full_path, "wb") as f:
                 f.write(resp.content)
 
+            # Optional: compute SHA1 hash for deduplication
+            hash_val = hashlib.sha1(resp.content).hexdigest()
+
             signals.append({
                 "signal_type": "IMAGE_FILE",
                 "value": full_path,
-                "confidence": "HIGH"
+                "confidence": "HIGH",
+                "source": "Image",
+                "collected_at": datetime.utcnow().isoformat() + "Z",
+                "hash": hash_val
             })
+
         except Exception as e:
             print(f"[!] Image fetch failed: {e}")
 
