@@ -1,25 +1,27 @@
-import json
-import networkx as nx
-
-
 def build_identity_graph(signals):
-    G = nx.Graph()
-
-    entity_node = "ENTITY:target"
-    G.add_node(entity_node, label="Target")
+    nodes = {}
+    edges = []
 
     for s in signals:
-        if "signal_type" not in s or "value" not in s:
+        if not isinstance(s, dict):
             continue
 
-        node_id = f"{s['signal_type']}:{s['value']}"
-        G.add_node(node_id, label=s["value"], type=s["signal_type"])
-        G.add_edge(entity_node, node_id)
+        signal_type = s.get("signal_type")
+        value = s.get("value")
 
-    return G
+        if not signal_type or not value:
+            continue
 
+        node_id = f"{signal_type}:{value}"
 
-def save_graph_json(graph, path):
-    data = nx.node_link_data(graph)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+        if node_id not in nodes:
+            nodes[node_id] = {
+                "id": node_id,
+                "type": signal_type,
+                "value": value,
+            }
+
+    return {
+        "nodes": list(nodes.values()),
+        "edges": edges,
+    }
