@@ -10,7 +10,7 @@ TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
 def pretty_print_signals(signals, truncate_len=120):
     """
-    Pretty print signals. Handles multi-line display for complex signals.
+    Pretty print signals. Structured signals (REPO_SUMMARY, SOCIAL_*, CONTRIBUTIONS) are split into multiple lines for readability.
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -29,21 +29,14 @@ def pretty_print_signals(signals, truncate_len=120):
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
-        if signal_type in ["REPO_SUMMARY", "CONTRIBUTIONS"]:
-            # Split REPO_SUMMARY or CONTRIBUTIONS by '|' or ',' for readability
-            parts = [p.strip() for p in value.replace(",", "|").split("|")]
-            print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
-            for part in parts[1:]:
-                if part:
-                    print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
-        elif signal_type in ["PINNED_REPO", "PROFILE_STATUS", "BADGE"]:
-            # Single value, may be long; print on multiple lines if needed
-            lines = value.split("\n")
-            for i, line in enumerate(lines):
-                prefix = signal_type if i == 0 else ""
-                print(f"{prefix:<{col_widths[0]}} {line:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+        # Multi-line formatting for structured signals
+        if signal_type in ["REPO_SUMMARY", "CONTRIBUTIONS", "PROFILE_README", "BADGE", "SOCIAL_TWITTER", "SOCIAL_LINKEDIN", "SOCIAL_MASTODON", "ORCID"]:
+            lines = value.split(" | ") if signal_type == "REPO_SUMMARY" else [value]
+            print(f"{signal_type:<{col_widths[0]}} {lines[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+            for line in lines[1:]:
+                print(f"{'':<{col_widths[0]}} {line:<{col_widths[1]}}")
         else:
-            # Regular single-line signal
+            # For normal signals, truncate if too long
             display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
             print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
