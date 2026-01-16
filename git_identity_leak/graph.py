@@ -1,30 +1,34 @@
-import os
-import re
-import requests
+import json
 
 
-def fetch_images_from_urls(urls, output_dir):
-    os.makedirs(output_dir, exist_ok=True)
-    results = []
+def build_identity_graph(signals):
+    """
+    Build a simple node graph from identity signals.
+    Output is JSON-compatible for visualization.
+    """
 
-    for idx, url in enumerate(urls):
-        try:
-            safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", url)
-            path = os.path.join(output_dir, f"image_{idx}.jpg")
+    nodes = {}
+    edges = []
 
-            r = requests.get(url, timeout=10)
-            r.raise_for_status()
+    for s in signals:
+        signal_type = s.get("signal_type")
+        value = s.get("value")
 
-            with open(path, "wb") as f:
-                f.write(r.content)
+        if not signal_type or not value:
+            continue
 
-            results.append({
-                "signal_type": "IMAGE_LOCAL",
-                "value": path,
-                "confidence": "HIGH"
-            })
+        node_id = f"{signal_type}:{value}"
 
-        except Exception as e:
-            print(f"[!] Image fetch failed: {e}")
+        if node_id not in nodes:
+            nodes[node_id] = {
+                "id": node_id,
+                "label": value,
+                "type": signal_type
+            }
 
-    return results
+    graph = {
+        "nodes": list(nodes.values()),
+        "edges": edges
+    }
+
+    return json.dumps(graph, indent=2)
