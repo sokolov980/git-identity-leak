@@ -10,7 +10,9 @@ TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
 def pretty_print_signals(signals, truncate_len=120):
     """
-    Pretty print signals. REPO_SUMMARY is split into multiple lines for readability.
+    Pretty print signals.
+    - REPO_SUMMARY is split into multiple lines for readability.
+    - CONTRIBUTIONS is displayed as year: count per line.
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -26,17 +28,27 @@ def pretty_print_signals(signals, truncate_len=120):
 
     for s in signals:
         signal_type = s.get("signal_type", "UNKNOWN")
-        value = str(s.get("value", ""))
+        value = s.get("value", "")
         confidence = s.get("confidence", "")
 
+        # Handle REPO_SUMMARY
         if signal_type == "REPO_SUMMARY":
-            # Split fields by '|' for clean multi-line display
-            parts = [p.strip() for p in value.split("|")]
+            parts = [p.strip() for p in str(value).split("|")]
             print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
             for part in parts[1:]:
                 print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
+
+        # Handle CONTRIBUTIONS (expects a dict year->count)
+        elif signal_type == "CONTRIBUTIONS" and isinstance(value, dict):
+            first = True
+            for year, count in sorted(value.items()):
+                prefix = signal_type if first else ""
+                print(f"{prefix:<{col_widths[0]}} {year}: {count:<{col_widths[1]-len(str(year))-2}} {confidence:<{col_widths[2]}}")
+                first = False
+
+        # Handle everything else
         else:
-            display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
+            display_value = str(value) if len(str(value)) <= truncate_len else str(value)[:truncate_len-3] + "..."
             print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
     print("-" * (sum(col_widths) + 4))
