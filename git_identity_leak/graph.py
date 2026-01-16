@@ -31,9 +31,11 @@ def build_identity_graph(signals):
 def save_graph_json(path, G):
     if not isinstance(G, nx.Graph):
         raise TypeError("G must be a NetworkX graph, not a string")
-    
-    # Ensure directory exists before saving
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    # Only make directories if a directory is specified
+    dir_path = os.path.dirname(path)
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
 
     data = json_graph.node_link_data(G)
     with open(path, "w") as f:
