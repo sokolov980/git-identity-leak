@@ -10,7 +10,7 @@ def full_analysis(username, image_dir=None, include_temporal=False, include_styl
     signals = []
 
     # Load plugins
-    plugins = load_plugins(["github", "reddit", "x", "linkedin"])  # ✅ FIXED
+    plugins = load_plugins(["github", "reddit", "x", "linkedin"])  
     for plugin in plugins:
         try:
             plugin_signals = plugin.collect(username)
