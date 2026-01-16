@@ -2,8 +2,11 @@
 import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
-import re  # For regex matching ORCID and social links
+import re
 from urllib.parse import urlparse
+from timezonefinder import TimezoneFinder
+import pytz
+from geopy.geocoders import Nominatim
 
 ORCID_REGEX = r"(https?://orcid\.org/\d{4}-\d{4}-\d{4}-\d{4})"
 
@@ -14,11 +17,9 @@ SOCIAL_DOMAINS = {
     "github.com": "SOCIAL_GITHUB",
 }
 
+PRONOUNS_REGEX = r"\b(?:he/him|she/her|they/them)\b"
+
 def extract_social_links(text):
-    """
-    Extract social URLs from text and categorize by domain.
-    Returns list of dicts: {signal_type, value}
-    """
     links = []
     urls = re.findall(r"https?://[^\s]+", text)
     for url in urls:
@@ -26,11 +27,31 @@ def extract_social_links(text):
         key = SOCIAL_DOMAINS.get(domain)
         if key:
             links.append({"signal_type": key, "value": url})
-        # ORCID detection
         orcid_match = re.search(ORCID_REGEX, url)
         if orcid_match:
             links.append({"signal_type": "ORCID", "value": orcid_match.group(1)})
     return links
+
+def detect_pronouns(text):
+    match = re.search(PRONOUNS_REGEX, text.lower())
+    return match.group(0) if match else None
+
+def get_local_time(location_str):
+    if not location_str:
+        return None
+    try:
+        geolocator = Nominatim(user_agent="git_identity_leak")
+        loc = geolocator.geocode(location_str, timeout=10)
+        if not loc:
+            return None
+        tf = TimezoneFinder()
+        tz_str = tf.timezone_at(lng=loc.longitude, lat=loc.latitude)
+        if not tz_str:
+            return None
+        tz = pytz.timezone(tz_str)
+        return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+    except Exception:
+        return None
 
 def collect(username):
     signals = []
@@ -46,28 +67,36 @@ def collect(username):
         # --- Basic info ---
         if data.get("name"):
             signals.append({"signal_type": "NAME", "value": data["name"], "confidence": "HIGH", "source": "GitHub", "collected_at": collected_at})
-
         signals.append({"signal_type": "USERNAME", "value": username, "confidence": "HIGH", "source": "GitHub", "collected_at": collected_at})
-
         if data.get("avatar_url"):
             signals.append({"signal_type": "IMAGE", "value": data["avatar_url"], "confidence": "HIGH", "source": "GitHub", "collected_at": collected_at})
 
-        # Fields to extract and parse for social links
+        # --- Bio / blog ---
         for field in ["bio", "blog"]:
             if data.get(field):
                 text = data[field]
                 signals.append({"signal_type": field.upper(), "value": text, "confidence": "MEDIUM", "source": "GitHub", "collected_at": collected_at})
-                social_signals = extract_social_links(text)
-                for s in social_signals:
+                for s in extract_social_links(text):
                     s.update({"confidence": "MEDIUM", "source": "GitHub", "collected_at": collected_at})
                     signals.append(s)
+                # Detect pronouns in bio
+                if field == "bio":
+                    pronouns = detect_pronouns(text)
+                    if pronouns:
+                        signals.append({"signal_type": "PRONOUNS", "value": pronouns, "confidence": "MEDIUM", "source": "GitHub", "collected_at": collected_at})
 
-        # Email, company, location, pronouns
+        # --- Email, company, location ---
         for field in ["email", "company", "location"]:
             if data.get(field):
                 signals.append({"signal_type": field.upper(), "value": data[field], "confidence": "MEDIUM", "source": "GitHub", "collected_at": collected_at})
 
-        # Twitter username as social
+        # --- Current local time if location provided ---
+        if data.get("location"):
+            local_time = get_local_time(data["location"])
+            if local_time:
+                signals.append({"signal_type": "LOCAL_TIME", "value": local_time, "confidence": "MEDIUM", "source": "GitHub", "collected_at": collected_at})
+
+        # --- Twitter handle ---
         if data.get("twitter_username"):
             signals.append({"signal_type": "SOCIAL_TWITTER", "value": f"https://twitter.com/{data['twitter_username']}", "confidence": "MEDIUM", "source": "GitHub", "collected_at": collected_at})
 
