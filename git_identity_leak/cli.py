@@ -8,37 +8,52 @@ from git_identity_leak.report import save_report
 
 TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
-def pretty_print_signals(signals, max_value_len=200):
+def pretty_print_signals(signals, truncate_len=120):
     """
     Print collected signals in a neat table format.
-    Dynamically adjusts VALUE column based on the longest signal.
+    GitHub repo-related signals are grouped together for clarity.
     """
     print("[DEBUG] Signals:")
     if not signals:
         print("  No signals collected.")
         return
 
-    # Determine the max width of VALUE column dynamically
-    value_len = min(max(len(str(s.get("value", ""))) for s in signals), max_value_len)
-    type_width = 18
-    confidence_width = 10
+    headers = ["TYPE", "VALUE", "CONFIDENCE"]
+    col_widths = [18, truncate_len, 10]
 
-    # Header
-    print("-" * (type_width + value_len + confidence_width + 4))
-    print(f"{'TYPE':<{type_width}} {'VALUE':<{value_len}} {'CONFIDENCE':<{confidence_width}}")
-    print("-" * (type_width + value_len + confidence_width + 4))
+    # Sort signals: first non-repo, then by repo name
+    def signal_sort_key(s):
+        stype = s.get("signal_type", "")
+        value = s.get("value", "")
+        if stype.startswith("REPO_") and ":" in value:
+            return value.split(":")[0]  # group by repo name
+        return ""  # non-repo signals come first
 
-    # Rows
-    for s in signals:
+    sorted_signals = sorted(signals, key=signal_sort_key)
+
+    print("-" * (sum(col_widths) + 4))
+    print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
+    print("-" * (sum(col_widths) + 4))
+
+    last_repo = None
+    for s in sorted_signals:
         signal_type = s.get("signal_type", "UNKNOWN")
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
-        # Truncate only if extremely long
-        display_value = value if len(value) <= value_len else value[:value_len-3] + "..."
-        print(f"{signal_type:<{type_width}} {display_value:<{value_len}} {confidence:<{confidence_width}}")
+        # Truncate long values if needed
+        display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
 
-    print("-" * (type_width + value_len + confidence_width + 4))
+        # Insert a blank line between different repos for readability
+        if signal_type.startswith("REPO_") and ":" in value:
+            repo_name = value.split(":")[0]
+            if last_repo and repo_name != last_repo:
+                print("-" * (sum(col_widths) + 4))
+            last_repo = repo_name
+
+        print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+
+    print("-" * (sum(col_widths) + 4))
 
 def pretty_print_dict(title, d):
     """
