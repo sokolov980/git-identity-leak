@@ -3,17 +3,25 @@ import requests
 from datetime import datetime
 
 def collect(username):
+    """
+    Collect GitHub OSINT signals for a given username.
+    Includes user info, followers, following, public repos, and per-repo details:
+    - Repo README URL
+    - Stars
+    - Description
+    - Main language
+    """
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
 
-    url = f"https://api.github.com/users/{username}"
+    user_url = f"https://api.github.com/users/{username}"
     try:
-        r = requests.get(url, timeout=10)
+        r = requests.get(user_url, timeout=10)
         if r.status_code != 200:
             return signals
         data = r.json()
 
-        # Basic user info
+        # --- Basic user info ---
         if data.get("name"):
             signals.append({
                 "signal_type": "NAME",
@@ -58,7 +66,7 @@ def collect(username):
                 "collected_at": collected_at
             })
 
-        # Followers, following, public repos
+        # --- Followers, following, public repos ---
         for field in ["followers", "following", "public_repos"]:
             if data.get(field) is not None:
                 signals.append({
@@ -69,53 +77,54 @@ def collect(username):
                     "collected_at": collected_at
                 })
 
-        # Fetch repos info
+        # --- Fetch repos info ---
         repos_url = data.get("repos_url")
         if repos_url:
             repos = requests.get(repos_url, timeout=10).json()
             for repo in repos:
-                # Repo README
-                readme_url = f"https://raw.githubusercontent.com/{username}/{repo['name']}/master/README.md"
+                repo_name = repo.get("name", "unknown")
+
+                # Repo README URL
+                readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
                 signals.append({
                     "signal_type": "REPO_README",
-                    "value": readme_url,
+                    "value": f"{repo_name}:{readme_url}",
                     "confidence": "MEDIUM",
                     "source": "GitHub",
                     "collected_at": collected_at
                 })
 
                 # Stars
+                stars = repo.get("stargazers_count", 0)
                 signals.append({
                     "signal_type": "REPO_STARS",
-                    "value": f"{repo['name']}:{repo.get('stargazers_count', 0)}",
+                    "value": f"{repo_name}:{stars}",
                     "confidence": "MEDIUM",
                     "source": "GitHub",
                     "collected_at": collected_at
                 })
 
-                # Repo description
-                description = repo.get("description")
-                if description:
-                    signals.append({
-                        "signal_type": "REPO_DESC",
-                        "value": f"{repo['name']}: {description}",
-                        "confidence": "MEDIUM",
-                        "source": "GitHub",
-                        "collected_at": collected_at
-                    })
+                # Description
+                description = repo.get("description") or ""
+                signals.append({
+                    "signal_type": "REPO_DESC",
+                    "value": f"{repo_name}:{description}",
+                    "confidence": "MEDIUM",
+                    "source": "GitHub",
+                    "collected_at": collected_at
+                })
 
                 # Main language
-                language = repo.get("language")
-                if language:
-                    signals.append({
-                        "signal_type": "REPO_LANG",
-                        "value": f"{repo['name']}: {language}",
-                        "confidence": "MEDIUM",
-                        "source": "GitHub",
-                        "collected_at": collected_at
-                    })
+                language = repo.get("language") or ""
+                signals.append({
+                    "signal_type": "REPO_LANG",
+                    "value": f"{repo_name}:{language}",
+                    "confidence": "MEDIUM",
+                    "source": "GitHub",
+                    "collected_at": collected_at
+                })
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[!] GitHub plugin error for user {username}: {e}")
 
     return signals
