@@ -3,24 +3,29 @@ from git_identity_leak.plugins import load_plugins
 from git_identity_leak.images import fetch_images_from_urls
 
 
-def full_analysis(username, image_dir=None, include_temporal=False, include_stylometry=False):
+def full_analysis(username, image_dir=None, include_stylometry=False, include_temporal=False):
     signals = []
 
-    plugins = load_plugins(["github", "reddit", "x", "linkedin"])
+    plugins = load_plugins()
+
     for plugin in plugins:
         try:
-            signals.extend(plugin.collect(username))
+            plugin_signals = plugin.collect(username)
+            if isinstance(plugin_signals, list):
+                signals.extend(plugin_signals)
         except Exception as e:
-            print(f"[!] Plugin error ({plugin.__name__}): {e}")
+            print(f"[!] Error running plugin {plugin.__name__}: {e}")
 
+    # extract image URLs safely
     image_urls = [
         s["value"]
         for s in signals
-        if s["signal_type"] == "IMAGE"
+        if isinstance(s, dict) and s.get("signal_type") == "IMAGE"
     ]
 
     if image_dir and image_urls:
-        signals.extend(fetch_images_from_urls(image_urls, image_dir))
+        image_signals = fetch_images_from_urls(image_urls, image_dir)
+        signals.extend(image_signals)
 
     temporal_data = {}
     stylometry_data = {}
