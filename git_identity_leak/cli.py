@@ -8,33 +8,37 @@ from git_identity_leak.report import save_report
 
 TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
-def pretty_print_signals(signals, truncate_len=TRUNCATE_LEN):
+def pretty_print_signals(signals, max_value_len=200):
     """
-    Print collected signals in a neat table format, truncating long values if needed.
+    Print collected signals in a neat table format.
+    Dynamically adjusts VALUE column based on the longest signal.
     """
     print("[DEBUG] Signals:")
     if not signals:
         print("  No signals collected.")
         return
 
-    headers = ["TYPE", "VALUE", "CONFIDENCE"]
-    col_widths = [18, truncate_len, 10]
+    # Determine the max width of VALUE column dynamically
+    value_len = min(max(len(str(s.get("value", ""))) for s in signals), max_value_len)
+    type_width = 18
+    confidence_width = 10
 
-    print("-" * (sum(col_widths) + 4))
-    print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
-    print("-" * (sum(col_widths) + 4))
+    # Header
+    print("-" * (type_width + value_len + confidence_width + 4))
+    print(f"{'TYPE':<{type_width}} {'VALUE':<{value_len}} {'CONFIDENCE':<{confidence_width}}")
+    print("-" * (type_width + value_len + confidence_width + 4))
 
+    # Rows
     for s in signals:
         signal_type = s.get("signal_type", "UNKNOWN")
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
-        # Truncate only if really too long
-        display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
+        # Truncate only if extremely long
+        display_value = value if len(value) <= value_len else value[:value_len-3] + "..."
+        print(f"{signal_type:<{type_width}} {display_value:<{value_len}} {confidence:<{confidence_width}}")
 
-        print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
-
-    print("-" * (sum(col_widths) + 4))
+    print("-" * (type_width + value_len + confidence_width + 4))
 
 def pretty_print_dict(title, d):
     """
