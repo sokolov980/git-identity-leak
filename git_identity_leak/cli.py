@@ -11,9 +11,9 @@ TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
 def pretty_print_signals(signals, truncate_len=120):
     """
-    Pretty print OSINT signals.
-    - REPO_SUMMARY is split into multiple lines for readability.
-    - Other long fields like PROFILE_README, ACHIEVEMENT, ORCID, LOCAL_TIME are also printed fully.
+    Pretty-print collected signals.
+    - REPO_SUMMARY signals are split into multiple lines for readability.
+    - Other signals are truncated if too long.
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -23,6 +23,7 @@ def pretty_print_signals(signals, truncate_len=120):
     headers = ["TYPE", "VALUE", "CONFIDENCE"]
     col_widths = [18, truncate_len, 10]
 
+    # Header
     print("-" * (sum(col_widths) + 4))
     print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
     print("-" * (sum(col_widths) + 4))
@@ -32,20 +33,19 @@ def pretty_print_signals(signals, truncate_len=120):
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
-        if signal_type in ["REPO_SUMMARY"]:
-            # Split REPO_SUMMARY into multiple lines using '|'
+        if signal_type == "REPO_SUMMARY":
+            # Split by '|' and print each part on a new line
             parts = [p.strip() for p in value.split("|")]
-            print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
-            for part in parts[1:]:
-                print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
-        elif signal_type in ["CONTRIBUTIONS", "PROFILE_README", "ACHIEVEMENT", "ORCID", "LOCAL_TIME"]:
-            # Print long fields fully in multi-line if needed
-            lines = value.split("\n")
-            print(f"{signal_type:<{col_widths[0]}} {lines[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
-            for line in lines[1:]:
-                print(f"{'':<{col_widths[0]}} {line:<{col_widths[1]}}")
+            if parts:
+                print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+                for part in parts[1:]:
+                    # wrap long parts for readability
+                    while len(part) > truncate_len:
+                        print(f"{'':<{col_widths[0]}} {part[:truncate_len]:<{col_widths[1]}}")
+                        part = part[truncate_len:]
+                    if part:
+                        print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
         else:
-            # Default: truncate if extremely long
             display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
             print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
