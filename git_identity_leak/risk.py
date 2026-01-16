@@ -1,25 +1,50 @@
-def compute_risk(signals: list, graph) -> dict:
+def summarize_risk(signals):
     """
-    Compute overall risk score and per-driver breakdown.
+    Produce a simple risk summary based on collected signals.
     """
-    overall_risk = 0.0
+
     drivers = []
+    score = 0.0
 
     for s in signals:
-        weight = s.confidence
-        if s.type == "username" and s.signal_type == "FACT":
-            drivers.append({"driver": f"Username reuse: {s.value}", "score": weight})
-            overall_risk += 0.3 * weight
-        elif s.type == "email" and s.signal_type == "FACT":
-            drivers.append({"driver": f"Email exposure: {s.value}", "score": weight})
-            overall_risk += 0.25 * weight
-        elif s.type == "image" and s.signal_type == "INFERENCE":
-            drivers.append({"driver": f"Image link: {s.value}", "score": weight})
-            overall_risk += 0.15 * weight
-        elif s.type == "post":
-            drivers.append({"driver": f"Post content: {s.value[:30]}...", "score": weight})
-            overall_risk += 0.1 * weight
+        stype = s.get("signal_type")
+        val = s.get("value")
 
-    overall_risk = min(overall_risk, 1.0)
-    return {"overall_risk": "HIGH" if overall_risk > 0.6 else "MEDIUM" if overall_risk > 0.3 else "LOW",
-            "drivers": drivers}
+        if stype == "USERNAME":
+            drivers.append({
+                "driver": f"Username reuse: {val}",
+                "score": 0.9
+            })
+            score += 0.9
+
+        elif stype == "EMAIL":
+            drivers.append({
+                "driver": f"Email exposure: {val}",
+                "score": 0.8
+            })
+            score += 0.8
+
+        elif stype == "IMAGE":
+            drivers.append({
+                "driver": "Public profile image",
+                "score": 0.6
+            })
+            score += 0.6
+
+        elif stype == "POST_PLATFORM":
+            drivers.append({
+                "driver": "Public posts linked to identity",
+                "score": 0.5
+            })
+            score += 0.5
+
+    overall_risk = "LOW"
+    if score >= 1.5:
+        overall_risk = "MEDIUM"
+    if score >= 3.0:
+        overall_risk = "HIGH"
+
+    return {
+        "overall_risk": overall_risk,
+        "drivers": drivers
+    }
