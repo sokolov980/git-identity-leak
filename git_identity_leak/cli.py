@@ -6,15 +6,14 @@ from git_identity_leak.self_audit import self_audit
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Git Identity Leak Detector")
-
+    parser = argparse.ArgumentParser(description="Git Identity Leak")
     parser.add_argument("--username", required=True)
+    parser.add_argument("--self-audit", action="store_true")
     parser.add_argument("--images")
     parser.add_argument("--graph-output")
     parser.add_argument("--output")
     parser.add_argument("--temporal", action="store_true")
     parser.add_argument("--stylometry", action="store_true")
-    parser.add_argument("--self-audit", action="store_true")
     parser.add_argument("--verbose", action="store_true")
 
     args = parser.parse_args()
@@ -23,8 +22,8 @@ def main():
         self_audit(args.username)
         return
 
-    signals, temporal, stylometry = full_analysis(
-        args.username,
+    signals, temporal_data, stylometry_data = full_analysis(
+        username=args.username,
         image_dir=args.images,
         include_temporal=args.temporal,
         include_stylometry=args.stylometry,
@@ -33,24 +32,24 @@ def main():
     if args.graph_output:
         graph = build_identity_graph(signals)
         with open(args.graph_output, "w") as f:
-            import json
-            json.dump(graph, f, indent=2)
+            f.write(graph)
         print(f"[+] Graph saved to {args.graph_output}")
 
-    report = {
-        "username": args.username,
-        "signals": signals,
-        "temporal": temporal,
-        "stylometry": stylometry,
-    }
-
     if args.output:
-        save_report(report, args.output)
+        save_report(
+            args.output,
+            signals,
+            temporal_data,
+            stylometry_data
+        )
 
     if args.verbose:
-        print("[DEBUG] Signals:", signals)
-        print("[DEBUG] Temporal data:", temporal)
-        print("[DEBUG] Stylometry data:", stylometry)
+        print("\n[DEBUG] Signals:")
+        for s in signals:
+            print(f" - {s['signal_type']}: {s['value']} ({s['confidence']})")
+
+        print("\n[DEBUG] Temporal data:", temporal_data)
+        print("[DEBUG] Stylometry data:", stylometry_data)
 
     print("[+] Analysis complete.")
 
