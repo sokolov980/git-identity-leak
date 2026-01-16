@@ -15,7 +15,7 @@ def build_identity_graph(signals):
         node_id = f"{stype}:{value}"
         G.add_node(node_id, **s)
 
-    # Connect nodes with the same entity (basic identity mapping)
+    # Connect nodes with the same value
     for i, s1 in enumerate(signals):
         for j, s2 in enumerate(signals):
             if i >= j:
@@ -28,8 +28,9 @@ def build_identity_graph(signals):
     return G
 
 def save_graph_json(path, G):
-    if isinstance(G, str):
+    if not isinstance(G, nx.Graph):
         raise TypeError("G must be a NetworkX graph, not a string")
     data = json_graph.node_link_data(G)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
