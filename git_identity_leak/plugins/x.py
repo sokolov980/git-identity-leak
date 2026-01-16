@@ -1,8 +1,11 @@
+# git_identity_leak/plugins/x.py
 import requests
-
+from datetime import datetime
 
 def collect(username):
-    url = f"https://twitter.com/{username}"
+    collected_at = datetime.utcnow().isoformat() + "Z"
+    # Use Nitter to avoid Twitter API/SSL issues
+    url = f"https://nitter.net/{username}"
 
     try:
         r = requests.get(url, timeout=10)
@@ -10,7 +13,9 @@ def collect(username):
             return [{
                 "signal_type": "PROFILE_PLATFORM",
                 "value": "Public X profile detected",
-                "confidence": "MEDIUM"
+                "confidence": "MEDIUM",
+                "source": "X",
+                "collected_at": collected_at
             }]
     except Exception:
         pass
@@ -18,5 +23,7 @@ def collect(username):
     return [{
         "signal_type": "PROFILE_PLATFORM",
         "value": "No public X profile detected",
-        "confidence": "LOW"
+        "confidence": "LOW",
+        "source": "X",
+        "collected_at": collected_at
     }]
