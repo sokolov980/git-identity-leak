@@ -4,20 +4,25 @@ import requests
 
 def fetch_images_from_urls(urls, output_dir):
     """
-    Download images from given URLs into output_dir. Creates folders as needed.
-    Returns a list of signal dicts.
+    Fetch images from a list of URLs and save them to output_dir.
+    Returns a list of signals in standard format.
     """
-    os.makedirs(output_dir, exist_ok=True)
     signals = []
 
+    if not urls:
+        return signals
+
+    os.makedirs(output_dir, exist_ok=True)
+
     for idx, url in enumerate(urls):
-        # Get a file extension from the URL (fallback to jpg)
+        # Clean URL for filename
+        safe_url = url.replace("://", "/").replace("/", "_").replace("?", "_").replace("&", "_")
         ext = url.split(".")[-1].split("?")[0]
-        if ext.lower() not in ["jpg", "jpeg", "png", "gif"]:
-            ext = "jpg"
+        if len(ext) > 5 or not ext.isalnum():
+            ext = "jpg"  # fallback extension
         filename = os.path.join(output_dir, f"image_{idx}.{ext}")
 
-        # Ensure directory exists
+        # Ensure parent directory exists
         os.makedirs(os.path.dirname(filename), exist_ok=True)
 
         try:
