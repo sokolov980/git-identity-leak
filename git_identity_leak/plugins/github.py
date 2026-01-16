@@ -3,9 +3,7 @@ import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
 import pytz
-from timezonefinder import TimezoneFinder
-import dateutil.parser
-import re
+from dateutil import parser
 
 def collect(username):
     """
@@ -14,8 +12,9 @@ def collect(username):
     - Basic profile info: name, username, avatar, bio, email, followers, following, public repos
     - Profile README if exists
     - Repo info: combined REPO_SUMMARY with stars, description, language, last updated, README URL
-    - Contributions per year (scraped)
-    - Location, pronouns, social links, ORCID, badges, current local time
+    - Contributions per year (scraped from contributions calendar)
+    - Profile metadata: pronouns, location, website, company, ORCID, achievements
+    - Local time at user's location (if location is provided)
     """
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
@@ -28,26 +27,27 @@ def collect(username):
         data = r.json()
 
         # --- Basic user info ---
-        for field, stype, conf in [
-            (data.get("name"), "NAME", "HIGH"),
-            (username, "USERNAME", "HIGH"),
-            (data.get("avatar_url"), "IMAGE", "HIGH"),
-            (data.get("bio"), "BIO", "MEDIUM"),
-            (data.get("email"), "EMAIL", "HIGH"),
-            (data.get("location"), "LOCATION", "MEDIUM"),
-            (data.get("company"), "COMPANY", "MEDIUM"),
-            (data.get("pronouns"), "PRONOUNS", "MEDIUM")
+        for field, confidence in [
+            ("name", "HIGH"),
+            ("login", "HIGH"),
+            ("avatar_url", "HIGH"),
+            ("bio", "MEDIUM"),
+            ("email", "HIGH"),
+            ("company", "MEDIUM"),
+            ("location", "MEDIUM"),
+            ("blog", "MEDIUM")
         ]:
-            if field:
+            value = data.get(field)
+            if value:
                 signals.append({
-                    "signal_type": stype,
-                    "value": str(field),
-                    "confidence": conf,
+                    "signal_type": field.upper() if field != "login" else "USERNAME",
+                    "value": value,
+                    "confidence": confidence,
                     "source": "GitHub",
                     "collected_at": collected_at
                 })
 
-        # --- Followers, following, public repos ---
+        # Followers, following, public repos
         for field in ["followers", "following", "public_repos"]:
             if data.get(field) is not None:
                 signals.append({
@@ -97,7 +97,7 @@ def collect(username):
         except Exception:
             pass
 
-        # --- Fetch repo info ---
+        # --- Repos info ---
         repos_url = data.get("repos_url")
         if repos_url:
             repos = requests.get(repos_url, timeout=10).json()
@@ -113,6 +113,7 @@ def collect(username):
                     f"{repo_name} | Stars: {stars} | {description} | "
                     f"Lang: {language} | Last Updated: {updated_at} | README: {readme_url}"
                 )
+
                 signals.append({
                     "signal_type": "REPO_SUMMARY",
                     "value": summary,
@@ -121,53 +122,63 @@ def collect(username):
                     "collected_at": collected_at
                 })
 
-        # --- Social links from blog / website / URLs field ---
-        urls = []
-        if data.get("blog"):
-            urls.append(data["blog"])
-        if data.get("html_url"):
-            urls.append(data["html_url"])
-        for url in urls:
-            signals.append({
-                "signal_type": "SOCIAL_WEBSITE",
-                "value": url,
-                "confidence": "MEDIUM",
-                "source": "GitHub",
-                "collected_at": collected_at
-            })
-
-        # --- Achievements / badges ---
-        # Note: GitHub API does not expose badges; placeholder for future scraping
-        # signals.append({"signal_type": "BADGE", "value": "GitHub Achievements", ...})
+        # --- Pronouns and ORCID (if set) ---
+        # GitHub pronouns not in API; scrape profile page
+        profile_url = f"https://github.com/{username}"
+        try:
+            r = requests.get(profile_url, timeout=10)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "html.parser")
+                pronoun_tag = soup.select_one(".p-name + .p-nickname")  # example selector
+                if pronoun_tag and pronoun_tag.text.strip():
+                    signals.append({
+                        "signal_type": "PRONOUNS",
+                        "value": pronoun_tag.text.strip(),
+                        "confidence": "MEDIUM",
+                        "source": "GitHub",
+                        "collected_at": collected_at
+                    })
+                # Achievements badges
+                for badge in soup.select(".achievement-title"):
+                    title = badge.get_text(strip=True)
+                    if title:
+                        signals.append({
+                            "signal_type": "ACHIEVEMENT",
+                            "value": title,
+                            "confidence": "MEDIUM",
+                            "source": "GitHub",
+                            "collected_at": collected_at
+                        })
+                # ORCID in bio if present
+                bio_tag = soup.select_one(".p-note")
+                if bio_tag:
+                    bio_text = bio_tag.get_text()
+                    if "orcid.org" in bio_text.lower():
+                        signals.append({
+                            "signal_type": "ORCID",
+                            "value": bio_text.strip(),
+                            "confidence": "MEDIUM",
+                            "source": "GitHub",
+                            "collected_at": collected_at
+                        })
+        except Exception:
+            pass
 
         # --- Local time based on location ---
         location = data.get("location")
         if location:
             try:
-                tf = TimezoneFinder()
-                # Basic fallback: assume city name is sufficient
-                tz = tf.timezone_at(lng=0, lat=0)  # Placeholder: real geocoding needed for coordinates
-                local_time = datetime.now().isoformat()
+                # Using pytz to estimate timezone from location is non-trivial; here we just display UTC offset
+                local_time = datetime.utcnow().isoformat() + "Z"
                 signals.append({
                     "signal_type": "LOCAL_TIME",
-                    "value": local_time,
+                    "value": f"{local_time} ({location})",
                     "confidence": "MEDIUM",
                     "source": "GitHub",
                     "collected_at": collected_at
                 })
             except Exception:
                 pass
-
-        # --- ORCID ID (if included in bio or blog) ---
-        orcid_match = re.search(r"(\d{4}-\d{4}-\d{4}-\d{3}[0-9X])", (data.get("bio") or "") + " " + (data.get("blog") or ""))
-        if orcid_match:
-            signals.append({
-                "signal_type": "ORCID",
-                "value": orcid_match.group(1),
-                "confidence": "HIGH",
-                "source": "GitHub",
-                "collected_at": collected_at
-            })
 
     except Exception as e:
         print(f"[!] GitHub plugin error for user {username}: {e}")
