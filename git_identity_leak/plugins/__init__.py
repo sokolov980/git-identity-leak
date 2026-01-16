@@ -1,30 +1,24 @@
-# plugins/__init__.py
-
 import importlib
 
-# Map internal plugin names to friendly display names for warnings
-PLUGIN_NAME_MAP = {
-    "reddit": "Reddit",
-    "x": "X (formerly Twitter)",
-    "linkedin": "LinkedIn",
-    "github": "GitHub"
+PLUGIN_MODULES = {
+    "GitHub": "git_identity_leak.plugins.github",
+    "Reddit": "git_identity_leak.plugins.reddit",
+    "X (formerly Twitter)": "git_identity_leak.plugins.x",
+    "LinkedIn": "git_identity_leak.plugins.linkedin",
 }
 
-def load_plugins(plugin_list):
-    """
-    Dynamically load plugins by name.
-    Prints a friendly warning if missing but does not crash.
-    """
+
+def load_plugins():
     plugins = []
-    for plugin_name in plugin_list:
-        module_path = f"plugins.{plugin_name}"
+
+    for name, module_path in PLUGIN_MODULES.items():
         try:
             module = importlib.import_module(module_path)
-            plugins.append(module)
-        except ModuleNotFoundError:
-            display_name = PLUGIN_NAME_MAP.get(plugin_name, plugin_name)
-            print(f"[!] Plugin {display_name} not found. Skipping.")
-        except Exception as e:
-            display_name = PLUGIN_NAME_MAP.get(plugin_name, plugin_name)
-            print(f"[!] Error loading plugin {display_name}: {e}")
+            if hasattr(module, "collect"):
+                plugins.append(module)
+            else:
+                print(f"[!] Plugin {name} missing collect() function. Skipping.")
+        except Exception:
+            print(f"[!] Plugin {name} not found. Skipping.")
+
     return plugins
