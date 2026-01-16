@@ -8,33 +8,17 @@ from git_identity_leak.report import save_report
 
 TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
-def pretty_print_signals(signals, truncate_len=120):
+def pretty_print_signals(signals, truncate_len=TRUNCATE_LEN):
     """
     Print collected signals in a neat table format.
-    GitHub repo signals are grouped per repo on a single line:
-    NAME | STARS | DESCRIPTION | LANGUAGE | README URL
+    - REPO_SUMMARY values are never truncated
+    - Other signals are truncated if too long
     """
     print("[DEBUG] Signals:")
     if not signals:
         print("  No signals collected.")
         return
 
-    # Separate GitHub repo signals from others
-    repo_signals = {}
-    other_signals = []
-
-    for s in signals:
-        stype = s.get("signal_type", "")
-        value = str(s.get("value", ""))
-        if stype.startswith("REPO_") and ":" in value:
-            repo_name = value.split(":")[0]
-            if repo_name not in repo_signals:
-                repo_signals[repo_name] = {}
-            repo_signals[repo_name][stype] = value.split(":")[1] if ":" in value else value
-        else:
-            other_signals.append(s)
-
-    # Print non-repo signals first
     headers = ["TYPE", "VALUE", "CONFIDENCE"]
     col_widths = [18, truncate_len, 10]
 
@@ -42,23 +26,15 @@ def pretty_print_signals(signals, truncate_len=120):
     print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
     print("-" * (sum(col_widths) + 4))
 
-    for s in other_signals:
-        stype = s.get("signal_type", "UNKNOWN")
+    for s in signals:
+        signal_type = s.get("signal_type", "UNKNOWN")
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
-        display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
-        print(f"{stype:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
-    # Now print each repo in one line
-    for repo_name, data in repo_signals.items():
-        stars = data.get("REPO_STARS", "-")
-        desc = data.get("REPO_DESC", "-")
-        lang = data.get("REPO_LANG", "-")
-        readme = data.get("REPO_README", "-")
-        # truncate description and readme for readability
-        desc_display = desc if len(desc) <= 40 else desc[:37] + "..."
-        readme_display = readme if len(readme) <= 60 else readme[:57] + "..."
-        print(f"REPO_SUMMARY      {repo_name} | Stars: {stars} | {desc_display} | Lang: {lang} | README: {readme_display:<{truncate_len-50}} HIGH")
+        # Never truncate REPO_SUMMARY, truncate others if needed
+        display_value = value if signal_type == "REPO_SUMMARY" else (value if len(value) <= truncate_len else value[:truncate_len-3] + "...")
+
+        print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
     print("-" * (sum(col_widths) + 4))
 
