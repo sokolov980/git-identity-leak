@@ -6,33 +6,35 @@ from git_identity_leak.analysis import full_analysis
 from git_identity_leak.graph import build_identity_graph, save_graph_json
 from git_identity_leak.report import save_report
 
-def pretty_print_signals(signals):
+TRUNCATE_LEN = 120  # Increase so URLs are fully visible
+
+def pretty_print_signals(signals, truncate_len=TRUNCATE_LEN):
     """
-    Print collected signals in a neat table format without truncating URLs.
+    Print collected signals in a neat table format, truncating long values if needed.
     """
     print("[DEBUG] Signals:")
     if not signals:
         print("  No signals collected.")
         return
 
-    # Compute dynamic widths
-    type_width = max(len(s.get("signal_type", "UNKNOWN")) for s in signals) + 2
-    conf_width = max(len(str(s.get("confidence", ""))) for s in signals) + 2
-    value_width = 80  # default column width for value
+    headers = ["TYPE", "VALUE", "CONFIDENCE"]
+    col_widths = [18, truncate_len, 10]
 
-    # Print header
-    print("-" * (type_width + value_width + conf_width))
-    print(f"{'TYPE':<{type_width}}{'VALUE':<{value_width}}{'CONFIDENCE':<{conf_width}}")
-    print("-" * (type_width + value_width + conf_width))
+    print("-" * (sum(col_widths) + 4))
+    print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
+    print("-" * (sum(col_widths) + 4))
 
-    # Print each signal
     for s in signals:
         signal_type = s.get("signal_type", "UNKNOWN")
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
-        print(f"{signal_type:<{type_width}}{value:<{value_width}}{confidence:<{conf_width}}")
 
-    print("-" * (type_width + value_width + conf_width))
+        # Truncate only if really too long
+        display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
+
+        print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+
+    print("-" * (sum(col_widths) + 4))
 
 def pretty_print_dict(title, d):
     """
