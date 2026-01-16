@@ -8,11 +8,9 @@ from git_identity_leak.report import save_report
 
 TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
-def pretty_print_signals(signals, truncate_len=TRUNCATE_LEN):
+def pretty_print_signals(signals, truncate_len=120):
     """
-    Print collected signals in a neat table format.
-    - REPO_SUMMARY values are never truncated
-    - Other signals are truncated if too long
+    Pretty print signals. REPO_SUMMARY is split into multiple lines for readability.
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -31,10 +29,15 @@ def pretty_print_signals(signals, truncate_len=TRUNCATE_LEN):
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
-        # Never truncate REPO_SUMMARY, truncate others if needed
-        display_value = value if signal_type == "REPO_SUMMARY" else (value if len(value) <= truncate_len else value[:truncate_len-3] + "...")
-
-        print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+        if signal_type == "REPO_SUMMARY":
+            # Split fields by '|' for clean multi-line display
+            parts = [p.strip() for p in value.split("|")]
+            print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+            for part in parts[1:]:
+                print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
+        else:
+            display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
+            print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
     print("-" * (sum(col_widths) + 4))
 
