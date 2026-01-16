@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import textwrap
 from git_identity_leak.analysis import full_analysis
 from git_identity_leak.graph import build_identity_graph, save_graph_json
 from git_identity_leak.report import save_report
