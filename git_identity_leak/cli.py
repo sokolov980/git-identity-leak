@@ -13,6 +13,8 @@ def pretty_print_signals(signals, truncate_len=120):
     """
     Pretty-print collected signals.
     - REPO_SUMMARY signals are split into multiple lines for readability.
+    - Repo descriptions are wrapped.
+    - URLs (like README) are fully shown without truncation.
     - Other signals are truncated if too long.
     """
     print("[DEBUG] Signals:")
@@ -34,18 +36,26 @@ def pretty_print_signals(signals, truncate_len=120):
         confidence = s.get("confidence", "")
 
         if signal_type == "REPO_SUMMARY":
-            # Split by '|' and print each part on a new line
+            # Split by '|' to separate fields
             parts = [p.strip() for p in value.split("|")]
             if parts:
+                # First line: repo name
                 print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+
+                # Remaining fields: wrap long text, except URLs
                 for part in parts[1:]:
-                    # wrap long parts for readability
-                    while len(part) > truncate_len:
-                        print(f"{'':<{col_widths[0]}} {part[:truncate_len]:<{col_widths[1]}}")
-                        part = part[truncate_len:]
-                    if part:
+                    # If part looks like a URL (README), print full line
+                    if part.lower().startswith("http"):
                         print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
+                    else:
+                        # Wrap long text
+                        while len(part) > truncate_len:
+                            print(f"{'':<{col_widths[0]}} {part[:truncate_len]:<{col_widths[1]}}")
+                            part = part[truncate_len:]
+                        if part:
+                            print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
         else:
+            # For non-REPO_SUMMARY signals, truncate normally
             display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
             print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
