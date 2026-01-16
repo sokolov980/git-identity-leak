@@ -1,24 +1,36 @@
 import importlib
 
-PLUGIN_MODULES = {
-    "GitHub": "git_identity_leak.plugins.github",
-    "Reddit": "git_identity_leak.plugins.reddit",
-    "X (formerly Twitter)": "git_identity_leak.plugins.x",
-    "LinkedIn": "git_identity_leak.plugins.linkedin",
+# Map internal plugin names to display names
+PLUGIN_NAME_MAP = {
+    "github": "GitHub",
+    "reddit": "Reddit",
+    "x": "X (formerly Twitter)",
+    "linkedin": "LinkedIn",
 }
 
 
-def load_plugins():
+def load_plugins(plugin_names):
+    """
+    Dynamically load plugins by name.
+
+    Args:
+        plugin_names (list[str]): Plugin module names
+
+    Returns:
+        list[module]: Loaded plugin modules
+    """
     plugins = []
 
-    for name, module_path in PLUGIN_MODULES.items():
+    for name in plugin_names:
+        module_path = f"git_identity_leak.plugins.{name}"
         try:
             module = importlib.import_module(module_path)
-            if hasattr(module, "collect"):
-                plugins.append(module)
-            else:
-                print(f"[!] Plugin {name} missing collect() function. Skipping.")
-        except Exception:
-            print(f"[!] Plugin {name} not found. Skipping.")
+            plugins.append(module)
+        except ModuleNotFoundError:
+            display = PLUGIN_NAME_MAP.get(name, name)
+            print(f"[!] Plugin {display} not found. Skipping.")
+        except Exception as e:
+            display = PLUGIN_NAME_MAP.get(name, name)
+            print(f"[!] Error loading plugin {display}: {e}")
 
     return plugins
