@@ -6,18 +6,38 @@ from git_identity_leak.analysis import full_analysis
 from git_identity_leak.graph import build_identity_graph, save_graph_json
 from git_identity_leak.report import save_report
 
-def pretty_print_signals(signals):
+TRUNCATE_LEN = 60
+
+def pretty_print_signals(signals, truncate_len=TRUNCATE_LEN):
+    """
+    Print collected signals in a neat table format, truncating long values.
+    """
     print("[DEBUG] Signals:")
     if not signals:
         print("  No signals collected.")
         return
+
+    headers = ["TYPE", "VALUE", "CONFIDENCE"]
+    print("-" * (truncate_len + 30))
+    print(f"{headers[0]:<15} {headers[1]:<{truncate_len}} {headers[2]:<10}")
+    print("-" * (truncate_len + 30))
+
     for s in signals:
         signal_type = s.get("signal_type", "UNKNOWN")
-        value = s.get("value", "")
-        conf = s.get("confidence", "")
-        print(f"- {signal_type:<15} {value:<60} {conf}")
+        value = str(s.get("value", ""))
+        confidence = s.get("confidence", "")
+
+        if len(value) > truncate_len:
+            value = value[:truncate_len - 3] + "..."
+
+        print(f"{signal_type:<15} {value:<{truncate_len}} {confidence:<10}")
+
+    print("-" * (truncate_len + 30))
 
 def pretty_print_dict(title, d):
+    """
+    Pretty-print a dictionary in JSON format.
+    """
     print(f"[DEBUG] {title}:")
     if not d:
         print("  No data.")
@@ -37,9 +57,9 @@ def main():
     args = parser.parse_args()
 
     # Ensure image directory exists
-    if args.images and not os.path.exists(args.images):
+    if args.images:
         try:
-            os.makedirs(args.images)
+            os.makedirs(args.images, exist_ok=True)
         except Exception as e:
             print(f"[!] Could not create image directory '{args.images}': {e}")
             args.images = None
