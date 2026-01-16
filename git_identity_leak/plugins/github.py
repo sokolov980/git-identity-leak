@@ -12,6 +12,8 @@ def collect(username):
     - Repo info: combined REPO_SUMMARY for each repo with stars, description, language, last updated, README URL
     - Contributions per year (scraped)
     - Pinned repositories (scraped)
+    - Profile status
+    - Achievements/badges
     """
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
@@ -96,7 +98,7 @@ def collect(username):
     except Exception:
         pass
 
-    # --- Contributions per year (aggregate) ---
+    # --- Contributions per year ---
     contrib_url = f"https://github.com/users/{username}/contributions"
     try:
         r = requests.get(contrib_url, timeout=10)
@@ -109,7 +111,6 @@ def collect(username):
                 if date:
                     year = date.split("-")[0]
                     years[year] = years.get(year, 0) + count
-            # Add one signal with all years
             contrib_summary = ", ".join(f"{y}: {c}" for y, c in sorted(years.items(), reverse=True))
             if contrib_summary:
                 signals.append({
@@ -122,7 +123,7 @@ def collect(username):
     except Exception:
         pass
 
-    # --- Fetch repo info ---
+    # --- Fetch repos info ---
     try:
         repos_url = data.get("repos_url")
         if repos_url:
@@ -150,12 +151,14 @@ def collect(username):
     except Exception as e:
         print(f"[!] GitHub plugin error fetching repos for {username}: {e}")
 
-    # --- Pinned repos ---
+    # --- Profile page scraping for pinned repos, status, and badges ---
     try:
         profile_page = f"https://github.com/{username}"
         r = requests.get(profile_page, timeout=10)
         if r.status_code == 200:
             soup = BeautifulSoup(r.text, "html.parser")
+
+            # Pinned repos
             pinned = soup.find_all("span", class_="repo")
             for repo_tag in pinned:
                 repo_name = repo_tag.text.strip()
@@ -166,6 +169,32 @@ def collect(username):
                     "source": "GitHub",
                     "collected_at": collected_at
                 })
+
+            # Profile status
+            status_tag = soup.find("div", class_="p-note user-profile-bio")
+            if status_tag:
+                status_text = status_tag.text.strip()
+                if status_text:
+                    signals.append({
+                        "signal_type": "PROFILE_STATUS",
+                        "value": status_text,
+                        "confidence": "MEDIUM",
+                        "source": "GitHub",
+                        "collected_at": collected_at
+                    })
+
+            # Achievements / badges
+            badges = soup.find_all("img", class_="achievement-badge")
+            for badge in badges:
+                alt_text = badge.get("alt", "").strip()
+                if alt_text:
+                    signals.append({
+                        "signal_type": "BADGE",
+                        "value": alt_text,
+                        "confidence": "MEDIUM",
+                        "source": "GitHub",
+                        "collected_at": collected_at
+                    })
     except Exception:
         pass
 
