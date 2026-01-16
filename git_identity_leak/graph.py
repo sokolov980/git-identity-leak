@@ -1,4 +1,5 @@
 # git_identity_leak/graph.py
+import os
 import networkx as nx
 from networkx.readwrite import json_graph
 import json
@@ -30,7 +31,10 @@ def build_identity_graph(signals):
 def save_graph_json(path, G):
     if not isinstance(G, nx.Graph):
         raise TypeError("G must be a NetworkX graph, not a string")
-    data = json_graph.node_link_data(G)
+    
+    # Ensure directory exists before saving
     os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    data = json_graph.node_link_data(G)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
