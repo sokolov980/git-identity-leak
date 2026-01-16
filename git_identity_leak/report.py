@@ -1,26 +1,27 @@
+# git_identity_leak/report.py
+
 import json
-import os
+from datetime import datetime
 
 def save_report(output_path, signals, temporal_data=None, stylometry_data=None):
     """
-    Save the OSINT report to a JSON file.
+    Save the analysis report as JSON.
 
     Args:
-        output_path (str): Path to save JSON report
-        signals (list): List of all identity signals
-        temporal_data (dict, optional): Temporal analysis results
-        stylometry_data (dict, optional): Stylometry analysis results
+        output_path (str): Path to save the report JSON.
+        signals (list): List of collected identity signals.
+        temporal_data (dict, optional): Temporal analysis results.
+        stylometry_data (dict, optional): Stylometry analysis results.
     """
     report = {
-        "signals": signals,
-        "temporal_data": temporal_data if temporal_data else {},
-        "stylometry_data": stylometry_data if stylometry_data else {}
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "signals": signals or [],
+        "temporal_data": temporal_data or {},
+        "stylometry_data": stylometry_data or {},
     }
 
-    # Ensure directory exists
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=4)
-
-    print(f"[+] Report saved to {output_path}")
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+    except Exception as e:
+        print(f"[!] Failed to save report: {e}")
