@@ -11,11 +11,9 @@ TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
 def pretty_print_signals(signals, truncate_len=120):
     """
-    Pretty-print collected signals.
-    - REPO_SUMMARY signals are split into multiple lines for readability.
-    - Repo descriptions are wrapped.
-    - URLs (like README) are fully shown without truncation.
-    - Other signals are truncated if too long.
+    Pretty print signals in a readable table.
+    - REPO_SUMMARY is displayed as a multi-line block
+    - CONTRIBUTIONS are grouped and clearly labeled
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -25,41 +23,33 @@ def pretty_print_signals(signals, truncate_len=120):
     headers = ["TYPE", "VALUE", "CONFIDENCE"]
     col_widths = [18, truncate_len, 10]
 
-    # Header
-    print("-" * (sum(col_widths) + 4))
+    divider = "-" * (sum(col_widths) + 4)
+    print(divider)
     print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
-    print("-" * (sum(col_widths) + 4))
+    print(divider)
 
     for s in signals:
         signal_type = s.get("signal_type", "UNKNOWN")
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
+        # --- REPO_SUMMARY: structured multi-line ---
         if signal_type == "REPO_SUMMARY":
-            # Split by '|' to separate fields
             parts = [p.strip() for p in value.split("|")]
-            if parts:
-                # First line: repo name
-                print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+            print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+            for part in parts[1:]:
+                print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
 
-                # Remaining fields: wrap long text, except URLs
-                for part in parts[1:]:
-                    # If part looks like a URL (README), print full line
-                    if part.lower().startswith("http"):
-                        print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
-                    else:
-                        # Wrap long text
-                        while len(part) > truncate_len:
-                            print(f"{'':<{col_widths[0]}} {part[:truncate_len]:<{col_widths[1]}}")
-                            part = part[truncate_len:]
-                        if part:
-                            print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
+        # --- CONTRIBUTIONS: clean yearly output ---
+        elif signal_type == "CONTRIBUTIONS":
+            print(f"{signal_type:<{col_widths[0]}} {value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+
+        # --- Everything else ---
         else:
-            # For non-REPO_SUMMARY signals, truncate normally
-            display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
+            display_value = value if len(value) <= truncate_len else value[:truncate_len - 3] + "..."
             print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
-    print("-" * (sum(col_widths) + 4))
+    print(divider)
 
 def pretty_print_dict(title, d):
     """
