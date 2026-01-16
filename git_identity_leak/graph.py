@@ -1,27 +1,30 @@
-def build_identity_graph(signals):
-    nodes = {}
-    edges = []
+import os
+import re
+import requests
 
-    for s in signals:
-        if not isinstance(s, dict):
-            continue
 
-        signal_type = s.get("signal_type")
-        value = s.get("value")
+def fetch_images_from_urls(urls, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    results = []
 
-        if not signal_type or not value:
-            continue
+    for idx, url in enumerate(urls):
+        try:
+            safe = re.sub(r"[^a-zA-Z0-9_.-]", "_", url)
+            path = os.path.join(output_dir, f"image_{idx}.jpg")
 
-        node_id = f"{signal_type}:{value}"
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
 
-        if node_id not in nodes:
-            nodes[node_id] = {
-                "id": node_id,
-                "type": signal_type,
-                "value": value,
-            }
+            with open(path, "wb") as f:
+                f.write(r.content)
 
-    return {
-        "nodes": list(nodes.values()),
-        "edges": edges,
-    }
+            results.append({
+                "signal_type": "IMAGE_LOCAL",
+                "value": path,
+                "confidence": "HIGH"
+            })
+
+        except Exception as e:
+            print(f"[!] Image fetch failed: {e}")
+
+    return results
