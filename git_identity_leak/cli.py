@@ -6,33 +6,33 @@ from git_identity_leak.analysis import full_analysis
 from git_identity_leak.graph import build_identity_graph, save_graph_json
 from git_identity_leak.report import save_report
 
-TRUNCATE_LEN = 60
-
-def pretty_print_signals(signals, truncate_len=TRUNCATE_LEN):
+def pretty_print_signals(signals):
     """
-    Print collected signals in a neat table format, truncating long values.
+    Print collected signals in a neat table format without truncating URLs.
     """
     print("[DEBUG] Signals:")
     if not signals:
         print("  No signals collected.")
         return
 
-    headers = ["TYPE", "VALUE", "CONFIDENCE"]
-    print("-" * (truncate_len + 30))
-    print(f"{headers[0]:<15} {headers[1]:<{truncate_len}} {headers[2]:<10}")
-    print("-" * (truncate_len + 30))
+    # Compute dynamic widths
+    type_width = max(len(s.get("signal_type", "UNKNOWN")) for s in signals) + 2
+    conf_width = max(len(str(s.get("confidence", ""))) for s in signals) + 2
+    value_width = 80  # default column width for value
 
+    # Print header
+    print("-" * (type_width + value_width + conf_width))
+    print(f"{'TYPE':<{type_width}}{'VALUE':<{value_width}}{'CONFIDENCE':<{conf_width}}")
+    print("-" * (type_width + value_width + conf_width))
+
+    # Print each signal
     for s in signals:
         signal_type = s.get("signal_type", "UNKNOWN")
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
+        print(f"{signal_type:<{type_width}}{value:<{value_width}}{confidence:<{conf_width}}")
 
-        if len(value) > truncate_len:
-            value = value[:truncate_len - 3] + "..."
-
-        print(f"{signal_type:<15} {value:<{truncate_len}} {confidence:<10}")
-
-    print("-" * (truncate_len + 30))
+    print("-" * (type_width + value_width + conf_width))
 
 def pretty_print_dict(title, d):
     """
