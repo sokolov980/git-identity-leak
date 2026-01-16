@@ -1,20 +1,15 @@
-# git_identity_leak/self_audit.py
 from git_identity_leak.analysis import full_analysis
+from git_identity_leak.risk import summarize_risk
+
 
 def self_audit(username):
-    """
-    Perform a basic self-audit on a username.
-    """
-    signals, temporal_data, stylometry_data = full_analysis(
-        username=username,
-        include_stylometry=False,
-        include_temporal=True
-    )
-    print("=== SELF-AUDIT REPORT ===")
-    print(f"Overall re-identification risk: {max([s.get('confidence','LOW') for s in signals], default='LOW')}")
+    signals, _, _ = full_analysis(username)
+
+    summary = summarize_risk(signals)
+
+    print("\n=== SELF-AUDIT REPORT ===")
+    print(f"Overall re-identification risk: {summary['overall_risk']}")
     print("Key drivers:")
-    for s in signals:
-        if s.get("signal_type") in ["NAME", "USERNAME", "EMAIL"]:
-            print(f" - {s.get('signal_type')}: {s.get('value')} (score {s.get('confidence','LOW')})")
-    print("==========================")
-    return signals
+    for d in summary["drivers"]:
+        print(f" - {d['driver']} (score {d['score']})")
+    print("==========================\n")
