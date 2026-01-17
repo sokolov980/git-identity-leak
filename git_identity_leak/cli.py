@@ -8,12 +8,25 @@ from git_identity_leak.report import save_report
 
 TRUNCATE_LEN = 120  # Increase so URLs are fully visible
 
+def ascii_contrib_graph(yearly):
+    """
+    Create a simple ASCII graph for contributions per year.
+    Each '#' represents ~5% of the maximum yearly contributions.
+    """
+    if not yearly:
+        return ""
+    max_count = max(yearly.values())
+    lines = []
+    for year, count in sorted(yearly.items()):
+        bar_len = int((count / max_count) * 40) if max_count else 0
+        bar = "#" * bar_len
+        lines.append(f"{year}: {bar} ({count})")
+    return "\n".join(lines)
+
 def pretty_print_signals(signals, truncate_len=120):
     """
-    Pretty print signals in a readable table.
-    - REPO_SUMMARY is displayed as a multi-line block
-    - CONTRIBUTIONS are grouped and clearly labeled
-    - Shows total contributions, weekday/weekend patterns, hourly histogram, pronouns, GitHub Pages, and social links
+    Pretty print GitHub signals.
+    Shows contributions, followers, following, mutuals, pronouns, GitHub Pages, languages.
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -22,17 +35,18 @@ def pretty_print_signals(signals, truncate_len=120):
 
     headers = ["TYPE", "VALUE", "CONFIDENCE"]
     col_widths = [30, truncate_len, 10]
-
     divider = "-" * (sum(col_widths) + 4)
     print(divider)
     print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
     print(divider)
 
-    # Prepare contribution and extra info
+    # Aggregate info
     contrib_total = None
     contrib_pattern = None
     contrib_years = {}
-    contrib_hourly = None
+    followers = []
+    following = []
+    mutuals = []
     extra_info = []
 
     for s in signals:
@@ -40,26 +54,31 @@ def pretty_print_signals(signals, truncate_len=120):
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
-        # --- Capture contributions info ---
         if stype == "CONTRIBUTION_TOTAL":
             contrib_total = value
             continue
         elif stype == "CONTRIBUTION_TIME_PATTERN":
             contrib_pattern = value
             continue
-        elif stype == "CONTRIBUTION_HOURLY_PATTERN":
-            contrib_hourly = s.get("meta", {})  # expect dict {hour: count}
-            continue
         elif stype == "CONTRIBUTIONS_YEAR":
             year = s.get("meta", {}).get("year", value)
             count = s.get("meta", {}).get("count", 0)
             contrib_years[year] = count
             continue
-        elif stype in ("GITHUB_PAGES", "PRONOUNS", "PROFILE_PLATFORM"):
+        elif stype == "FOLLOWER_USERNAME":
+            followers.append(value)
+            continue
+        elif stype == "FOLLOWING_USERNAME":
+            following.append(value)
+            continue
+        elif stype == "MUTUAL_CONNECTION":
+            mutuals.append(value)
+            continue
+        elif stype in ("GITHUB_PAGES", "PRONOUNS", "PROFILE_PLATFORM", "LANGUAGE_PROFILE"):
             extra_info.append((stype, value, confidence))
             continue
 
-        # --- REPO_SUMMARY: structured multi-line ---
+        # REPO_SUMMARY
         if stype == "REPO_SUMMARY":
             parts = [p.strip() for p in value.split("|")]
             print(f"{stype:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
@@ -67,44 +86,41 @@ def pretty_print_signals(signals, truncate_len=120):
                 print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
             continue
 
-        # --- Everything else ---
-        display_value = value if len(value) <= truncate_len else value[:truncate_len - 3] + "..."
+        display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
         print(f"{stype:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
-    # --- Print contributions last ---
+    # Contributions
     if contrib_total is not None:
         print(f"{'CONTRIBUTION_TOTAL':<{col_widths[0]}} {contrib_total:<{col_widths[1]}} HIGH")
     if contrib_pattern is not None:
         print(f"{'CONTRIBUTION_TIME_PATTERN':<{col_widths[0]}} {contrib_pattern:<{col_widths[1]}} MEDIUM")
-    for year in sorted(contrib_years.keys()):
-        print(f"{'CONTRIBUTIONS_YEAR':<{col_widths[0]}} {year}: {contrib_years[year]:<{col_widths[1]}} HIGH")
+    if contrib_years:
+        print("\n[Contributions per year]")
+        print(ascii_contrib_graph(contrib_years))
 
-    # --- Print hourly contribution histogram ---
-    if contrib_hourly:
-        print(f"{'CONTRIBUTION_HOURLY_PATTERN':<{col_widths[0]}} {'':<{col_widths[1]}} MEDIUM")
-        line = ""
-        for hour in range(24):
-            count = contrib_hourly.get(hour, 0)
-            bar = "█" * min(count, 20)  # scale max 20 chars
-            line += f"{hour:02d}: {bar} ({count})\n"
-        print(line.rstrip())
+    # Followers / Following / Mutuals
+    if followers:
+        print(f"\nFollowers ({len(followers)}): {', '.join(followers)}")
+    if following:
+        print(f"Following ({len(following)}): {', '.join(following)}")
+    if mutuals:
+        print(f"Mutual connections ({len(mutuals)}): {', '.join(mutuals)}")
 
-    # --- Print extra profile info (GitHub Pages, pronouns, social links) ---
+    # Extra profile info
     for stype, value, confidence in extra_info:
-        display_value = value if len(value) <= truncate_len else value[:truncate_len - 3] + "..."
+        display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
         print(f"{stype:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
     print(divider)
 
+
 def pretty_print_dict(title, d):
-    """
-    Pretty-print a dictionary in JSON format.
-    """
     print(f"[DEBUG] {title}:")
     if not d:
         print("  No data.")
         return
     print(json.dumps(d, indent=2))
+
 
 def main():
     parser = argparse.ArgumentParser(description="Git Identity Leak OSINT Tool")
@@ -118,7 +134,6 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Show debug output")
     args = parser.parse_args()
 
-    # Ensure image directory exists
     if args.images:
         try:
             os.makedirs(args.images, exist_ok=True)
@@ -126,7 +141,6 @@ def main():
             print(f"[!] Could not create image directory '{args.images}': {e}")
             args.images = None
 
-    # Run full analysis
     signals, temporal_data, stylometry_data = full_analysis(
         username=args.username,
         image_dir=args.images,
@@ -134,22 +148,20 @@ def main():
         include_stylometry=args.stylometry
     )
 
-    # Pretty-print debug output
     if args.verbose:
         pretty_print_signals(signals)
         pretty_print_dict("Temporal data", temporal_data)
         pretty_print_dict("Stylometry data", stylometry_data)
 
-    # Build and save graph
     graph = build_identity_graph(signals)
     if args.graph_output:
         save_graph_json(args.graph_output, graph)
         print(f"[+] Graph saved to {args.graph_output}")
 
-    # Save report
     if args.output:
         save_report(args.output, signals, temporal_data, stylometry_data)
         print(f"[+] Report saved to {args.output}")
+
 
 if __name__ == "__main__":
     main()
