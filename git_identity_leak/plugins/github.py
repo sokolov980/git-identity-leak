@@ -1,6 +1,6 @@
 # git_identity_leak/plugins/github.py
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import Counter
 from bs4 import BeautifulSoup
 
@@ -10,6 +10,7 @@ def collect(username):
     now = datetime.utcnow()
 
     user_url = f"https://api.github.com/users/{username}"
+
     try:
         r = requests.get(user_url, timeout=10)
         if r.status_code != 200:
@@ -47,22 +48,44 @@ def collect(username):
                 "collected_at": collected_at
             })
 
-        # --- Followers usernames ---
-        for rel, stype in [
-            ("followers", "FOLLOWER_USERNAME"),
-            ("following", "FOLLOWING_USERNAME")
-        ]:
+        # --- Followers / Following usernames (deduplicated + mutuals) ---
+        followers = set()
+        following = set()
+
+        for rel, target in [("followers", followers), ("following", following)]:
             url = f"https://api.github.com/users/{username}/{rel}"
             resp = requests.get(url, timeout=10)
             if resp.status_code == 200:
                 for u in resp.json():
-                    signals.append({
-                        "signal_type": stype,
-                        "value": u.get("login"),
-                        "confidence": "MEDIUM",
-                        "source": "GitHub",
-                        "collected_at": collected_at
-                    })
+                    if u.get("login"):
+                        target.add(u["login"])
+
+        for user in sorted(followers - following):
+            signals.append({
+                "signal_type": "FOLLOWER_USERNAME",
+                "value": user,
+                "confidence": "MEDIUM",
+                "source": "GitHub",
+                "collected_at": collected_at
+            })
+
+        for user in sorted(following - followers):
+            signals.append({
+                "signal_type": "FOLLOWING_USERNAME",
+                "value": user,
+                "confidence": "MEDIUM",
+                "source": "GitHub",
+                "collected_at": collected_at
+            })
+
+        for user in sorted(followers & following):
+            signals.append({
+                "signal_type": "MUTUAL_CONNECTION",
+                "value": user,
+                "confidence": "HIGH",
+                "source": "GitHub",
+                "collected_at": collected_at
+            })
 
         # --- Profile README ---
         readme_url = f"https://raw.githubusercontent.com/{username}/{username}/master/README.md"
@@ -85,6 +108,7 @@ def collect(username):
             if r.status_code == 200:
                 soup = BeautifulSoup(r.text, "html.parser")
                 yearly = {}
+
                 for rect in soup.find_all("rect", {"class": "ContributionCalendar-day"}):
                     date = rect.get("data-date")
                     count = int(rect.get("data-count", 0))
@@ -109,14 +133,13 @@ def collect(username):
         language_counter = Counter()
 
         for repo in repos:
-            repo_name = repo.get("name")
+            repo_name = repo.get("name", "unknown")
             stars = repo.get("stargazers_count", 0)
             description = (repo.get("description") or "").replace("\n", " ").strip()
             language = repo.get("language") or "Unknown"
             updated_at = repo.get("updated_at", "").split("T")[0]
 
-            if language:
-                language_counter[language] += 1
+            language_counter[language] += 1
 
             # Inactivity scoring
             risk = "UNKNOWN"
@@ -158,7 +181,7 @@ def collect(username):
         if language_counter:
             total = sum(language_counter.values())
             profile = ", ".join(
-                f"{lang} {int((count/total)*100)}%"
+                f"{lang} {int((count / total) * 100)}%"
                 for lang, count in language_counter.most_common()
             )
             signals.append({
@@ -168,21 +191,6 @@ def collect(username):
                 "source": "GitHub",
                 "collected_at": collected_at,
                 "meta": dict(language_counter)
-            })
-
-        # --- Cross-platform username correlation ---
-        for platform, base in {
-            "X": "https://x.com/",
-            "Reddit": "https://reddit.com/user/",
-            "GitLab": "https://gitlab.com/",
-            "Dev.to": "https://dev.to/"
-        }.items():
-            signals.append({
-                "signal_type": "PROFILE_PLATFORM",
-                "value": f"{platform}: {base}{username}",
-                "confidence": "LOW",
-                "source": "Username correlation",
-                "collected_at": collected_at
             })
 
     except Exception as e:
