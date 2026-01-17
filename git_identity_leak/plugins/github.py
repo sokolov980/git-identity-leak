@@ -1,24 +1,27 @@
 # git_identity_leak/plugins/github.py
-import os
 import requests
 from datetime import datetime
 from collections import Counter
 from bs4 import BeautifulSoup
 import re
-import json
-
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")  # Needed for GraphQL contributions
-
-GRAPHQL_URL = "https://api.github.com/graphql"
-HEADERS = {"Authorization": f"bearer {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
 
 def collect(username):
+    """
+    Collect GitHub signals for a public username without requiring a token.
+    Includes:
+    - Profile info
+    - Followers / Following usernames + mutuals
+    - Contributions total, per year, weekday/weekend, hourly pattern
+    - Repo info and inactivity
+    - Language profile
+    - GitHub Pages, pronouns, social links
+    """
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
     now = datetime.utcnow()
 
     def get_all_users(url):
-        """Paginate through GitHub followers/following."""
+        """Paginate followers/following"""
         users = set()
         page = 1
         while True:
@@ -98,7 +101,7 @@ def collect(username):
                 "collected_at": collected_at,
             })
 
-        # --- Profile README, pronouns, social links ---
+        # --- Profile README ---
         readme_url = f"https://raw.githubusercontent.com/{username}/{username}/master/README.md"
         try:
             if requests.head(readme_url, timeout=5).status_code == 200:
@@ -109,11 +112,8 @@ def collect(username):
                     "source": "GitHub",
                     "collected_at": collected_at,
                 })
-
                 readme_text = requests.get(readme_url, timeout=10).text
                 soup_readme = BeautifulSoup(readme_text, "html.parser")
-
-                # Social links
                 for a in soup_readme.find_all("a", href=True):
                     href = a["href"]
                     for platform in ["twitter.com", "x.com", "linkedin.com", "reddit.com", "gitlab.com", "dev.to"]:
@@ -125,8 +125,6 @@ def collect(username):
                                 "source": "GitHub README",
                                 "collected_at": collected_at
                             })
-
-                # Pronouns
                 match = re.search(r'(?i)pronouns?\s*[:\-]\s*([a-zA-Z/]+)', readme_text)
                 if match:
                     signals.append({
@@ -153,76 +151,51 @@ def collect(username):
         except Exception:
             pass
 
-        # --- Contributions via GraphQL API ---
-        total_contribs = 0
-        yearly_counts = {}
-        hourly_counts = [0]*24
+        # --- Contributions (scrape) ---
+        yearly = {}
         weekday_count = 0
         weekend_count = 0
+        contrib_resp = requests.get(f"https://github.com/users/{username}/contributions", timeout=10)
+        if contrib_resp.status_code == 200:
+            soup = BeautifulSoup(contrib_resp.text, "html.parser")
+            for rect in soup.find_all("rect", class_="ContributionCalendar-day"):
+                date = rect.get("data-date")
+                count = int(rect.get("data-count", 0))
+                if date:
+                    dt = datetime.strptime(date, "%Y-%m-%d")
+                    year = str(dt.year)
+                    yearly[year] = yearly.get(year, 0) + count
+                    if dt.weekday() < 5:
+                        weekday_count += count
+                    else:
+                        weekend_count += count
 
-        if GITHUB_TOKEN:
-            query = {
-                "query": """
-                query($login:String!) {
-                  user(login:$login) {
-                    contributionsCollection {
-                      contributionCalendar {
-                        totalContributions
-                        weeks {
-                          contributionDays {
-                            date
-                            contributionCount
-                          }
-                        }
-                      }
-                    }
-                  }
-                }""",
-                "variables": {"login": username}
-            }
-            resp = requests.post(GRAPHQL_URL, headers=HEADERS, json=query, timeout=10)
-            if resp.status_code == 200:
-                data_graph = resp.json()
-                weeks = data_graph["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
-                for week in weeks:
-                    for day in week["contributionDays"]:
-                        date = day["date"]
-                        count = day["contributionCount"]
-                        dt = datetime.strptime(date, "%Y-%m-%d")
-                        total_contribs += count
-                        year = str(dt.year)
-                        yearly_counts[year] = yearly_counts.get(year, 0) + count
-                        if dt.weekday() < 5:
-                            weekday_count += count
-                        else:
-                            weekend_count += count
-
-        # Append contribution signals
+        total_contribs = sum(yearly.values())
         signals.append({
             "signal_type": "CONTRIBUTION_TOTAL",
             "value": str(total_contribs),
             "confidence": "HIGH",
-            "source": "GitHub GraphQL" if GITHUB_TOKEN else "Scraped",
+            "source": "GitHub",
             "collected_at": collected_at
         })
         signals.append({
             "signal_type": "CONTRIBUTION_TIME_PATTERN",
             "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
             "confidence": "MEDIUM",
-            "source": "GitHub GraphQL" if GITHUB_TOKEN else "Scraped",
+            "source": "GitHub",
             "collected_at": collected_at
         })
-        for year, count in sorted(yearly_counts.items()):
+        for year, count in sorted(yearly.items()):
             signals.append({
                 "signal_type": "CONTRIBUTIONS_YEAR",
                 "value": year,
                 "confidence": "HIGH",
-                "source": "GitHub GraphQL" if GITHUB_TOKEN else "Scraped",
+                "source": "GitHub",
                 "collected_at": collected_at,
                 "meta": {"year": year, "count": count},
             })
 
-        # --- Repo analysis + language profile + hourly commits ---
+        # --- Repo analysis and language profile ---
         repos_resp = requests.get(data["repos_url"], timeout=10)
         language_counter = Counter()
         if repos_resp.status_code == 200:
@@ -265,20 +238,7 @@ def collect(username):
                     "collected_at": collected_at,
                 })
 
-                # Hourly commit pattern
-                commits_url = f"https://api.github.com/repos/{username}/{repo_name}/commits?author={username}&per_page=100"
-                try:
-                    r_commits = requests.get(commits_url, timeout=10)
-                    if r_commits.status_code == 200:
-                        for commit in r_commits.json():
-                            dt_str = commit.get("commit", {}).get("author", {}).get("date")
-                            if dt_str:
-                                dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%SZ")
-                                hourly_counts[dt.hour] += 1
-                except Exception:
-                    continue
-
-        # Language profile
+        # --- Language profile ---
         if language_counter:
             total = sum(language_counter.values())
             profile = ", ".join(f"{lang} {int((count/total)*100)}%" for lang, count in language_counter.most_common())
@@ -290,15 +250,6 @@ def collect(username):
                 "collected_at": collected_at,
                 "meta": dict(language_counter),
             })
-
-        # Hourly contribution pattern
-        signals.append({
-            "signal_type": "CONTRIBUTION_HOURLY_PATTERN",
-            "value": {str(h): c for h, c in enumerate(hourly_counts)},
-            "confidence": "MEDIUM",
-            "source": "GitHub commits",
-            "collected_at": collected_at
-        })
 
     except Exception as e:
         print(f"[!] GitHub plugin error: {e}")
