@@ -27,6 +27,25 @@ def build_identity_graph(signals):
                     relation="SOCIAL_LINK"
                 )
 
+    # --- Repo nodes + edges ---
+    repo_sigs = [s for s in signals if s.get("signal_type") == "REPO_SUMMARY"]
+    inactivity_sigs = {s["value"].split(":")[0]: s for s in signals if s.get("signal_type") == "INACTIVITY_SCORE"}
+
+    for repo in repo_sigs:
+        repo_name = repo["value"].split("|")[0].strip()
+        node_id = f"REPO:{repo_name}"
+
+        # Merge repo data + inactivity
+        node_data = repo.copy()
+        if repo_name in inactivity_sigs:
+            node_data["inactivity_score"] = inactivity_sigs[repo_name]["value"]
+
+        G.add_node(node_id, **node_data)
+
+        # Link to username
+        if username:
+            G.add_edge(f"USERNAME:{username}", node_id, relation="OWNS_REPO")
+
     # --- Contribution temporal graph ---
     contrib_years = [
         s for s in signals
@@ -58,7 +77,7 @@ def build_identity_graph(signals):
     if pattern_signal:
         G.add_node("CONTRIBUTION_TIME_PATTERN", **pattern_signal)
 
-        # Optionally link pattern node to total contributions
+        # Link pattern node to total contributions
         if total_signal:
             G.add_edge("CONTRIBUTION_TOTAL", "CONTRIBUTION_TIME_PATTERN", relation="PATTERN_REL")
 
