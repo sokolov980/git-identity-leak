@@ -2,7 +2,6 @@
 import argparse
 import json
 import os
-import textwrap
 from git_identity_leak.analysis import full_analysis
 from git_identity_leak.graph import build_identity_graph, save_graph_json
 from git_identity_leak.report import save_report
@@ -14,7 +13,7 @@ def pretty_print_signals(signals, truncate_len=120):
     Pretty print signals in a readable table.
     - REPO_SUMMARY is displayed as a multi-line block
     - CONTRIBUTIONS are grouped and clearly labeled
-    - Shows total contributions and weekday/weekend patterns
+    - Shows total contributions, weekday/weekend patterns, pronouns, GitHub Pages, and social links
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -22,17 +21,18 @@ def pretty_print_signals(signals, truncate_len=120):
         return
 
     headers = ["TYPE", "VALUE", "CONFIDENCE"]
-    col_widths = [25, truncate_len, 10]
+    col_widths = [30, truncate_len, 10]
 
     divider = "-" * (sum(col_widths) + 4)
     print(divider)
     print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
     print(divider)
 
-    # Prepare contribution aggregates
+    # Prepare contribution and extra info
     contrib_total = None
     contrib_pattern = None
     contrib_years = {}
+    extra_info = []
 
     for s in signals:
         stype = s.get("signal_type", "UNKNOWN")
@@ -50,6 +50,9 @@ def pretty_print_signals(signals, truncate_len=120):
             year = s.get("meta", {}).get("year", value)
             count = s.get("meta", {}).get("count", 0)
             contrib_years[year] = count
+            continue
+        elif stype in ("GITHUB_PAGES", "PRONOUNS", "PROFILE_PLATFORM"):
+            extra_info.append((stype, value, confidence))
             continue
 
         # --- REPO_SUMMARY: structured multi-line ---
@@ -71,6 +74,11 @@ def pretty_print_signals(signals, truncate_len=120):
         print(f"{'CONTRIBUTION_TIME_PATTERN':<{col_widths[0]}} {contrib_pattern:<{col_widths[1]}} MEDIUM")
     for year in sorted(contrib_years.keys()):
         print(f"{'CONTRIBUTIONS_YEAR':<{col_widths[0]}} {year}: {contrib_years[year]:<{col_widths[1]}} HIGH")
+
+    # --- Print extra profile info (GitHub Pages, pronouns, social links) ---
+    for stype, value, confidence in extra_info:
+        display_value = value if len(value) <= truncate_len else value[:truncate_len - 3] + "..."
+        print(f"{stype:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
     print(divider)
 
