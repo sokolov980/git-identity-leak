@@ -15,6 +15,7 @@ def collect(username):
         r = requests.get(user_url, timeout=10)
         if r.status_code != 200:
             return signals
+
         data = r.json()
 
         # --- Basic profile info ---
@@ -26,7 +27,7 @@ def collect(username):
             ("email", "EMAIL", "HIGH"),
             ("company", "COMPANY", "MEDIUM"),
             ("location", "LOCATION", "MEDIUM"),
-            ("blog", "URL", "MEDIUM")
+            ("blog", "URL", "MEDIUM"),
         ]:
             value = data.get(field)
             if value:
@@ -35,160 +36,150 @@ def collect(username):
                     "value": value,
                     "confidence": confidence,
                     "source": "GitHub",
-                    "collected_at": collected_at
+                    "collected_at": collected_at,
                 })
 
-        # --- Followers / Following counts ---
+        # --- Counts ---
         for field in ["followers", "following", "public_repos"]:
             signals.append({
                 "signal_type": field.upper(),
                 "value": str(data.get(field, 0)),
                 "confidence": "HIGH",
                 "source": "GitHub",
-                "collected_at": collected_at
+                "collected_at": collected_at,
             })
 
-        # --- Followers / Following usernames (deduplicated + mutuals) ---
-        followers = set()
-        following = set()
+        # --- Followers / Following usernames ---
+        followers, following = set(), set()
 
         for rel, target in [("followers", followers), ("following", following)]:
-            url = f"https://api.github.com/users/{username}/{rel}"
-            resp = requests.get(url, timeout=10)
+            resp = requests.get(f"https://api.github.com/users/{username}/{rel}", timeout=10)
             if resp.status_code == 200:
                 for u in resp.json():
                     if u.get("login"):
                         target.add(u["login"])
 
-        for user in sorted(followers - following):
+        for u in sorted(followers - following):
             signals.append({
                 "signal_type": "FOLLOWER_USERNAME",
-                "value": user,
+                "value": u,
                 "confidence": "MEDIUM",
                 "source": "GitHub",
-                "collected_at": collected_at
+                "collected_at": collected_at,
             })
 
-        for user in sorted(following - followers):
+        for u in sorted(following - followers):
             signals.append({
                 "signal_type": "FOLLOWING_USERNAME",
-                "value": user,
+                "value": u,
                 "confidence": "MEDIUM",
                 "source": "GitHub",
-                "collected_at": collected_at
+                "collected_at": collected_at,
             })
 
-        for user in sorted(followers & following):
+        for u in sorted(followers & following):
             signals.append({
                 "signal_type": "MUTUAL_CONNECTION",
-                "value": user,
+                "value": u,
                 "confidence": "HIGH",
                 "source": "GitHub",
-                "collected_at": collected_at
+                "collected_at": collected_at,
             })
 
         # --- Profile README ---
         readme_url = f"https://raw.githubusercontent.com/{username}/{username}/master/README.md"
-        try:
-            if requests.head(readme_url, timeout=5).status_code == 200:
-                signals.append({
-                    "signal_type": "PROFILE_README",
-                    "value": readme_url,
-                    "confidence": "MEDIUM",
-                    "source": "GitHub",
-                    "collected_at": collected_at
-                })
-        except Exception:
-            pass
+        if requests.head(readme_url, timeout=5).status_code == 200:
+            signals.append({
+                "signal_type": "PROFILE_README",
+                "value": readme_url,
+                "confidence": "MEDIUM",
+                "source": "GitHub",
+                "collected_at": collected_at,
+            })
 
         # --- Contributions per year ---
-contrib_url = f"https://github.com/users/{username}/contributions"
-try:
-    r = requests.get(contrib_url, timeout=10)
-    if r.status_code == 200:
-        soup = BeautifulSoup(r.text, "html.parser")
-        yearly = {}
+        contrib_resp = requests.get(
+            f"https://github.com/users/{username}/contributions",
+            timeout=10
+        )
 
-        for rect in soup.find_all("rect", {"class": "ContributionCalendar-day"}):
-            date = rect.get("data-date")
-            count = int(rect.get("data-count", 0))
-            if date:
-                year = date.split("-")[0]
-                yearly[year] = yearly.get(year, 0) + count
+        if contrib_resp.status_code == 200:
+            soup = BeautifulSoup(contrib_resp.text, "html.parser")
+            yearly = {}
 
-        for year, total in sorted(yearly.items()):
-            # Human-readable signal (CLI / report)
-            signals.append({
-                "signal_type": "CONTRIBUTIONS",
-                "value": f"{year}: {total}",
-                "confidence": "MEDIUM",
-                "source": "GitHub",
-                "collected_at": collected_at,
-            })
+            for rect in soup.find_all("rect", class_="ContributionCalendar-day"):
+                date = rect.get("data-date")
+                count = int(rect.get("data-count", 0))
+                if date:
+                    year = date.split("-")[0]
+                    yearly[year] = yearly.get(year, 0) + count
 
-            # Graph-ready signal
-            signals.append({
-                "signal_type": "CONTRIBUTIONS_YEAR",
-                "value": year,
-                "confidence": "HIGH",
-                "source": "GitHub",
-                "collected_at": collected_at,
-                "meta": {
-                    "year": year,
-                    "count": total
-                }
-            })
-except Exception:
-    pass
+            for year, total in sorted(yearly.items()):
+                signals.append({
+                    "signal_type": "CONTRIBUTIONS",
+                    "value": f"{year}: {total}",
+                    "confidence": "MEDIUM",
+                    "source": "GitHub",
+                    "collected_at": collected_at,
+                })
+
+                signals.append({
+                    "signal_type": "CONTRIBUTIONS_YEAR",
+                    "value": year,
+                    "confidence": "HIGH",
+                    "source": "GitHub",
+                    "collected_at": collected_at,
+                    "meta": {"year": year, "count": total},
+                })
 
         # --- Repo analysis ---
-        repos = requests.get(data["repos_url"], timeout=10).json()
+        repos_resp = requests.get(data["repos_url"], timeout=10)
         language_counter = Counter()
 
-        for repo in repos:
-            repo_name = repo.get("name", "unknown")
-            stars = repo.get("stargazers_count", 0)
-            description = (repo.get("description") or "").replace("\n", " ").strip()
-            language = repo.get("language") or "Unknown"
-            updated_at = repo.get("updated_at", "").split("T")[0]
+        if repos_resp.status_code == 200:
+            for repo in repos_resp.json():
+                repo_name = repo.get("name", "unknown")
+                stars = repo.get("stargazers_count", 0)
+                description = (repo.get("description") or "").replace("\n", " ").strip()
+                language = repo.get("language") or "Unknown"
+                updated_at = repo.get("updated_at", "").split("T")[0]
 
-            language_counter[language] += 1
+                language_counter[language] += 1
 
-            # Inactivity scoring
-            risk = "UNKNOWN"
-            try:
-                last_update = datetime.strptime(updated_at, "%Y-%m-%d")
-                days = (now - last_update).days
-                if days < 90:
-                    risk = "LOW"
-                elif days < 365:
-                    risk = "MEDIUM"
-                else:
-                    risk = "HIGH"
-            except Exception:
-                pass
+                risk = "UNKNOWN"
+                try:
+                    last_update = datetime.strptime(updated_at, "%Y-%m-%d")
+                    days = (now - last_update).days
+                    if days < 90:
+                        risk = "LOW"
+                    elif days < 365:
+                        risk = "MEDIUM"
+                    else:
+                        risk = "HIGH"
+                except Exception:
+                    pass
 
-            readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
+                readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
 
-            signals.append({
-                "signal_type": "REPO_SUMMARY",
-                "value": (
-                    f"{repo_name} | Stars: {stars} | {description} | "
-                    f"Lang: {language} | Last Updated: {updated_at} | "
-                    f"Inactivity: {risk} | README: {readme_url}"
-                ),
-                "confidence": "HIGH",
-                "source": "GitHub",
-                "collected_at": collected_at
-            })
+                signals.append({
+                    "signal_type": "REPO_SUMMARY",
+                    "value": (
+                        f"{repo_name} | Stars: {stars} | {description} | "
+                        f"Lang: {language} | Last Updated: {updated_at} | "
+                        f"Inactivity: {risk} | README: {readme_url}"
+                    ),
+                    "confidence": "HIGH",
+                    "source": "GitHub",
+                    "collected_at": collected_at,
+                })
 
-            signals.append({
-                "signal_type": "INACTIVITY_SCORE",
-                "value": f"{repo_name}: {risk}",
-                "confidence": "MEDIUM",
-                "source": "GitHub",
-                "collected_at": collected_at
-            })
+                signals.append({
+                    "signal_type": "INACTIVITY_SCORE",
+                    "value": f"{repo_name}: {risk}",
+                    "confidence": "MEDIUM",
+                    "source": "GitHub",
+                    "collected_at": collected_at,
+                })
 
         # --- Language profile ---
         if language_counter:
@@ -203,7 +194,7 @@ except Exception:
                 "confidence": "HIGH",
                 "source": "GitHub",
                 "collected_at": collected_at,
-                "meta": dict(language_counter)
+                "meta": dict(language_counter),
             })
 
     except Exception as e:
