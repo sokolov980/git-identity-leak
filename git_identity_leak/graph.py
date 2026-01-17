@@ -39,28 +39,41 @@ def build_identity_graph(signals):
         year = s["meta"]["year"]
         count = s["meta"]["count"]
         node_id = f"CONTRIBUTIONS_YEAR:{year}"
-        G.nodes[node_id]["year"] = year
-        G.nodes[node_id]["count"] = count
+
+        # Add per-year node
+        G.add_node(node_id, **s)
+
+        # Link temporal edges
         if prev_node:
             G.add_edge(prev_node, node_id, relation="TEMPORAL_NEXT")
         prev_node = node_id
 
-    # --- Contribution total & pattern nodes ---
+    # --- Contribution total node ---
     total_signal = next((s for s in signals if s["signal_type"] == "CONTRIBUTION_TOTAL"), None)
     if total_signal:
         G.add_node("CONTRIBUTION_TOTAL", **total_signal)
+
+    # --- Contribution weekday/weekend pattern node ---
     pattern_signal = next((s for s in signals if s["signal_type"] == "CONTRIBUTION_TIME_PATTERN"), None)
     if pattern_signal:
         G.add_node("CONTRIBUTION_TIME_PATTERN", **pattern_signal)
 
+        # Optionally link pattern node to total contributions
+        if total_signal:
+            G.add_edge("CONTRIBUTION_TOTAL", "CONTRIBUTION_TIME_PATTERN", relation="PATTERN_REL")
+
     return G
+
 
 def save_graph_json(path, G):
     if not isinstance(G, nx.Graph):
         raise TypeError("G must be a NetworkX graph, not a string")
+
+    # Ensure directory exists
     dir_path = os.path.dirname(path)
     if dir_path:
         os.makedirs(dir_path, exist_ok=True)
+
     data = json_graph.node_link_data(G)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
