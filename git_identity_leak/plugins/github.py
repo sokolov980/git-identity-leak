@@ -95,6 +95,7 @@ def collect(username):
                     "source": "GitHub",
                     "collected_at": collected_at,
                 })
+
                 # Scrape README for pronouns and social links
                 readme_text = requests.get(readme_url, timeout=10).text
                 soup_readme = BeautifulSoup(readme_text, "html.parser")
@@ -109,6 +110,7 @@ def collect(username):
                                 "source": "GitHub README",
                                 "collected_at": collected_at
                             })
+
                 # Detect pronouns in README
                 match = re.search(r'(?i)pronouns?\s*[:\-]\s*([a-zA-Z/]+)', readme_text)
                 if match:
@@ -155,35 +157,37 @@ def collect(username):
                     else:
                         weekend_count += count
 
-            # Total contributions
-            total_contribs = sum(yearly.values())
+        # Total contributions
+        total_contribs = sum(yearly.values())
+        signals.append({
+            "signal_type": "CONTRIBUTION_TOTAL",
+            "value": total_contribs,
+            "confidence": "HIGH",
+            "source": "GitHub",
+            "collected_at": collected_at,
+            "meta": {"weekdays": weekday_count, "weekends": weekend_count}
+        })
+
+        # Weekday/weekend pattern
+        signals.append({
+            "signal_type": "CONTRIBUTION_TIME_PATTERN",
+            "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
+            "confidence": "MEDIUM",
+            "source": "GitHub",
+            "collected_at": collected_at,
+            "meta": {"weekdays": weekday_count, "weekends": weekend_count}
+        })
+
+        # Per-year contributions
+        for year, total in sorted(yearly.items()):
             signals.append({
-                "signal_type": "CONTRIBUTION_TOTAL",
-                "value": str(total_contribs),
+                "signal_type": "CONTRIBUTIONS_YEAR",
+                "value": year,
                 "confidence": "HIGH",
                 "source": "GitHub",
-                "collected_at": collected_at
+                "collected_at": collected_at,
+                "meta": {"year": year, "count": total}
             })
-
-            # Weekday/weekend pattern
-            signals.append({
-                "signal_type": "CONTRIBUTION_TIME_PATTERN",
-                "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
-                "confidence": "MEDIUM",
-                "source": "GitHub",
-                "collected_at": collected_at
-            })
-
-            # Per-year contributions
-            for year, total in sorted(yearly.items()):
-                signals.append({
-                    "signal_type": "CONTRIBUTIONS_YEAR",
-                    "value": year,
-                    "confidence": "HIGH",
-                    "source": "GitHub",
-                    "collected_at": collected_at,
-                    "meta": {"year": year, "count": total},
-                })
 
         # --- Repo analysis ---
         repos_resp = requests.get(data["repos_url"], timeout=10)
