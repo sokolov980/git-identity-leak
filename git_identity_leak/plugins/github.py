@@ -1,4 +1,5 @@
 # git_identity_leak/plugins/github.py
+import os
 import requests
 from datetime import datetime
 from collections import Counter
@@ -6,26 +7,18 @@ from bs4 import BeautifulSoup
 import re
 
 def collect(username):
-    """
-    Collect GitHub signals for a public username without requiring a token.
-    Includes:
-    - Profile info
-    - Followers / Following usernames + mutuals
-    - Contributions total, per year, weekday/weekend, hourly pattern
-    - Repo info and inactivity
-    - Language profile
-    - GitHub Pages, pronouns, social links
-    """
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
     now = datetime.utcnow()
+    token = os.environ.get("GITHUB_TOKEN")
+    headers = {"Authorization": f"token {token}"} if token else {}
 
     def get_all_users(url):
-        """Paginate followers/following"""
+        """Paginate through GitHub followers/following."""
         users = set()
         page = 1
         while True:
-            resp = requests.get(f"{url}?per_page=100&page={page}", timeout=10)
+            resp = requests.get(f"{url}?per_page=100&page={page}", headers=headers, timeout=10)
             if resp.status_code != 200 or not resp.json():
                 break
             for u in resp.json():
@@ -37,7 +30,7 @@ def collect(username):
 
     try:
         # --- Basic profile info ---
-        r = requests.get(f"https://api.github.com/users/{username}", timeout=10)
+        r = requests.get(f"https://api.github.com/users/{username}", headers=headers, timeout=10)
         if r.status_code != 200:
             return signals
         data = r.json()
@@ -101,7 +94,7 @@ def collect(username):
                 "collected_at": collected_at,
             })
 
-        # --- Profile README ---
+        # --- Profile README, pronouns, social links ---
         readme_url = f"https://raw.githubusercontent.com/{username}/{username}/master/README.md"
         try:
             if requests.head(readme_url, timeout=5).status_code == 200:
@@ -112,8 +105,11 @@ def collect(username):
                     "source": "GitHub",
                     "collected_at": collected_at,
                 })
+
                 readme_text = requests.get(readme_url, timeout=10).text
                 soup_readme = BeautifulSoup(readme_text, "html.parser")
+
+                # Social links
                 for a in soup_readme.find_all("a", href=True):
                     href = a["href"]
                     for platform in ["twitter.com", "x.com", "linkedin.com", "reddit.com", "gitlab.com", "dev.to"]:
@@ -125,6 +121,8 @@ def collect(username):
                                 "source": "GitHub README",
                                 "collected_at": collected_at
                             })
+
+                # Pronouns
                 match = re.search(r'(?i)pronouns?\s*[:\-]\s*([a-zA-Z/]+)', readme_text)
                 if match:
                     signals.append({
@@ -151,7 +149,7 @@ def collect(username):
         except Exception:
             pass
 
-        # --- Contributions (scrape) ---
+        # --- Contributions: total, weekday/weekend, per year ---
         yearly = {}
         weekday_count = 0
         weekend_count = 0
@@ -195,9 +193,10 @@ def collect(username):
                 "meta": {"year": year, "count": count},
             })
 
-        # --- Repo analysis and language profile ---
-        repos_resp = requests.get(data["repos_url"], timeout=10)
+        # --- Repo analysis + language profile + hourly commits ---
+        repos_resp = requests.get(data["repos_url"], headers=headers, timeout=10)
         language_counter = Counter()
+        hourly_counts = [0]*24
         if repos_resp.status_code == 200:
             for repo in repos_resp.json():
                 repo_name = repo.get("name", "unknown")
@@ -238,7 +237,20 @@ def collect(username):
                     "collected_at": collected_at,
                 })
 
-        # --- Language profile ---
+                # Hourly commit pattern
+                commits_url = f"https://api.github.com/repos/{username}/{repo_name}/commits?author={username}&per_page=100"
+                try:
+                    r_commits = requests.get(commits_url, headers=headers, timeout=10)
+                    if r_commits.status_code == 200:
+                        for commit in r_commits.json():
+                            dt_str = commit.get("commit", {}).get("author", {}).get("date")
+                            if dt_str:
+                                dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%SZ")
+                                hourly_counts[dt.hour] += 1
+                except Exception:
+                    continue
+
+        # Language profile
         if language_counter:
             total = sum(language_counter.values())
             profile = ", ".join(f"{lang} {int((count/total)*100)}%" for lang, count in language_counter.most_common())
@@ -250,6 +262,15 @@ def collect(username):
                 "collected_at": collected_at,
                 "meta": dict(language_counter),
             })
+
+        # Hourly contribution pattern
+        signals.append({
+            "signal_type": "CONTRIBUTION_HOURLY_PATTERN",
+            "value": {str(h): c for h, c in enumerate(hourly_counts)},
+            "confidence": "MEDIUM",
+            "source": "GitHub commits",
+            "collected_at": collected_at
+        })
 
     except Exception as e:
         print(f"[!] GitHub plugin error: {e}")
