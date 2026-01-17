@@ -6,7 +6,6 @@ import json
 
 def build_identity_graph(signals):
     G = nx.Graph()
-
     username = next((s["value"] for s in signals if s["signal_type"] == "USERNAME"), None)
 
     # --- Base profile nodes ---
@@ -18,7 +17,6 @@ def build_identity_graph(signals):
         node_id = f"{stype}:{value}"
         G.add_node(node_id, **s)
 
-        # Link profile info to username
         if username and stype not in (
             "REPO_SUMMARY", "INACTIVITY_SCORE",
             "CONTRIBUTIONS_YEAR", "CONTRIBUTION_TOTAL",
@@ -40,7 +38,6 @@ def build_identity_graph(signals):
     # --- Repo nodes + edges ---
     repo_sigs = [s for s in signals if s.get("signal_type") == "REPO_SUMMARY"]
     inactivity_sigs = {s["value"].split(":")[0]: s for s in signals if s.get("signal_type") == "INACTIVITY_SCORE"}
-
     for repo in repo_sigs:
         repo_name = repo["value"].split("|")[0].strip()
         node_id = f"REPO:{repo_name}"
@@ -51,7 +48,7 @@ def build_identity_graph(signals):
         if username:
             G.add_edge(f"USERNAME:{username}", node_id, relation="OWNS_REPO")
 
-    # --- Contribution temporal graph (per year) ---
+    # --- Contribution per year ---
     contrib_years = [s for s in signals if s.get("signal_type") == "CONTRIBUTIONS_YEAR" and "meta" in s]
     contrib_years.sort(key=lambda s: int(s["meta"]["year"]))
     prev_node = None
@@ -69,7 +66,6 @@ def build_identity_graph(signals):
         G.add_node("CONTRIBUTION_TOTAL", **total_signal)
         if username:
             G.add_edge(f"USERNAME:{username}", "CONTRIBUTION_TOTAL", relation="TOTAL_CONTRIBUTIONS")
-        # Connect total to yearly contributions
         for year_node in contrib_years:
             G.add_edge("CONTRIBUTION_TOTAL", f"CONTRIBUTIONS_YEAR:{year_node['meta']['year']}", relation="YEARLY")
 
@@ -80,7 +76,7 @@ def build_identity_graph(signals):
         if total_signal:
             G.add_edge("CONTRIBUTION_TOTAL", "CONTRIBUTION_TIME_PATTERN", relation="PATTERN_REL")
 
-    # --- Hourly contributions (24 nodes) ---
+    # --- Hourly contributions ---
     hourly_signal = next((s for s in signals if s["signal_type"] == "CONTRIBUTION_HOURLY_PATTERN"), None)
     if hourly_signal:
         hourly_counts = hourly_signal.get("value", {})
