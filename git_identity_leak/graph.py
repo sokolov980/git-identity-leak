@@ -12,19 +12,21 @@ def build_identity_graph(signals):
         value = s.get("value")
         if not stype or not value:
             continue
-
         node_id = f"{stype}:{value}"
         G.add_node(node_id, **s)
 
-    # Connect nodes with the same value
-    for i, s1 in enumerate(signals):
-        for j, s2 in enumerate(signals):
-            if i >= j:
-                continue
-            if s1.get("value") == s2.get("value"):
-                n1 = f"{s1.get('signal_type')}:{s1.get('value')}"
-                n2 = f"{s2.get('signal_type')}:{s2.get('value')}"
-                G.add_edge(n1, n2)
+    # Explicit follower/following edges
+    for s in signals:
+        if s["signal_type"] in ("FOLLOWER_USERNAME", "FOLLOWING_USERNAME"):
+            user = next(
+                (x["value"] for x in signals if x["signal_type"] == "USERNAME"),
+                None
+            )
+            if user:
+                G.add_edge(
+                    f"USERNAME:{user}",
+                    f"{s['signal_type']}:{s['value']}"
+                )
 
     return G
 
