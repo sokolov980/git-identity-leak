@@ -14,6 +14,7 @@ def pretty_print_signals(signals, truncate_len=120):
     Pretty print signals in a readable table.
     - REPO_SUMMARY is displayed as a multi-line block
     - CONTRIBUTIONS are grouped and clearly labeled
+    - Shows total contributions and weekday/weekend patterns
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -21,33 +22,55 @@ def pretty_print_signals(signals, truncate_len=120):
         return
 
     headers = ["TYPE", "VALUE", "CONFIDENCE"]
-    col_widths = [18, truncate_len, 10]
+    col_widths = [25, truncate_len, 10]
 
     divider = "-" * (sum(col_widths) + 4)
     print(divider)
     print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
     print(divider)
 
+    # Prepare contribution aggregates
+    contrib_total = None
+    contrib_pattern = None
+    contrib_years = {}
+
     for s in signals:
-        signal_type = s.get("signal_type", "UNKNOWN")
+        stype = s.get("signal_type", "UNKNOWN")
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
+        # Capture contributions info for later
+        if stype == "CONTRIBUTION_TOTAL":
+            contrib_total = value
+            continue
+        elif stype == "CONTRIBUTION_TIME_PATTERN":
+            contrib_pattern = value
+            continue
+        elif stype == "CONTRIBUTIONS_YEAR":
+            year = s.get("meta", {}).get("year", value)
+            count = s.get("meta", {}).get("count", 0)
+            contrib_years[year] = count
+            continue
+
         # --- REPO_SUMMARY: structured multi-line ---
-        if signal_type == "REPO_SUMMARY":
+        if stype == "REPO_SUMMARY":
             parts = [p.strip() for p in value.split("|")]
-            print(f"{signal_type:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+            print(f"{stype:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
             for part in parts[1:]:
                 print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
-
-        # --- CONTRIBUTIONS: clean yearly output ---
-        elif signal_type == "CONTRIBUTIONS":
-            print(f"{signal_type:<{col_widths[0]}} {value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+            continue
 
         # --- Everything else ---
-        else:
-            display_value = value if len(value) <= truncate_len else value[:truncate_len - 3] + "..."
-            print(f"{signal_type:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+        display_value = value if len(value) <= truncate_len else value[:truncate_len - 3] + "..."
+        print(f"{stype:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
+
+    # --- Print contributions last ---
+    if contrib_total is not None:
+        print(f"{'CONTRIBUTION_TOTAL':<{col_widths[0]}} {contrib_total:<{col_widths[1]}} HIGH")
+    if contrib_pattern is not None:
+        print(f"{'CONTRIBUTION_TIME_PATTERN':<{col_widths[0]}} {contrib_pattern:<{col_widths[1]}} MEDIUM")
+    for year in sorted(contrib_years.keys()):
+        print(f"{'CONTRIBUTIONS_YEAR':<{col_widths[0]}} {year}: {contrib_years[year]:<{col_widths[1]}} HIGH")
 
     print(divider)
 
