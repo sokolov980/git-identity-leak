@@ -84,7 +84,7 @@ def collect(username):
                 "collected_at": collected_at,
             })
 
-        # --- Profile README ---
+        # --- Profile README, pronouns, social links ---
         readme_url = f"https://raw.githubusercontent.com/{username}/{username}/master/README.md"
         try:
             if requests.head(readme_url, timeout=5).status_code == 200:
@@ -95,7 +95,6 @@ def collect(username):
                     "source": "GitHub",
                     "collected_at": collected_at,
                 })
-                # Scrape README for pronouns and social links
                 readme_text = requests.get(readme_url, timeout=10).text
                 soup_readme = BeautifulSoup(readme_text, "html.parser")
                 for a in soup_readme.find_all("a", href=True):
@@ -109,7 +108,6 @@ def collect(username):
                                 "source": "GitHub README",
                                 "collected_at": collected_at
                             })
-                # Detect pronouns in README
                 match = re.search(r'(?i)pronouns?\s*[:\-]\s*([a-zA-Z/]+)', readme_text)
                 if match:
                     signals.append({
@@ -183,10 +181,10 @@ def collect(username):
                     "meta": {"year": year, "count": total},
                 })
 
-        # --- Repo analysis and language profile ---
+        # --- Repo analysis and hourly contributions ---
         repos_resp = requests.get(data["repos_url"], timeout=10)
         language_counter = Counter()
-        hourly_counts = [0] * 24  # For hourly contribution pattern
+        hourly_counts = [0] * 24
         if repos_resp.status_code == 200:
             for repo in repos_resp.json():
                 repo_name = repo.get("name", "unknown")
@@ -212,19 +210,13 @@ def collect(username):
                     pass
 
                 readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
-
                 signals.append({
                     "signal_type": "REPO_SUMMARY",
-                    "value": (
-                        f"{repo_name} | Stars: {stars} | {description} | "
-                        f"Lang: {language} | Last Updated: {updated_at} | "
-                        f"Inactivity: {risk} | README: {readme_url}"
-                    ),
+                    "value": f"{repo_name} | Stars: {stars} | {description} | Lang: {language} | Last Updated: {updated_at} | Inactivity: {risk} | README: {readme_url}",
                     "confidence": "HIGH",
                     "source": "GitHub",
                     "collected_at": collected_at,
                 })
-
                 signals.append({
                     "signal_type": "INACTIVITY_SCORE",
                     "value": f"{repo_name}: {risk}",
