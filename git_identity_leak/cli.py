@@ -13,7 +13,7 @@ def pretty_print_signals(signals, truncate_len=120):
     Pretty print signals in a readable table.
     - REPO_SUMMARY is displayed as a multi-line block
     - CONTRIBUTIONS are grouped and clearly labeled
-    - Shows total contributions, weekday/weekend patterns, pronouns, GitHub Pages, and social links
+    - Shows total contributions, weekday/weekend patterns, hourly histogram, pronouns, GitHub Pages, and social links
     """
     print("[DEBUG] Signals:")
     if not signals:
@@ -32,6 +32,7 @@ def pretty_print_signals(signals, truncate_len=120):
     contrib_total = None
     contrib_pattern = None
     contrib_years = {}
+    contrib_hourly = None
     extra_info = []
 
     for s in signals:
@@ -39,12 +40,15 @@ def pretty_print_signals(signals, truncate_len=120):
         value = str(s.get("value", ""))
         confidence = s.get("confidence", "")
 
-        # Capture contributions info for later
+        # --- Capture contributions info ---
         if stype == "CONTRIBUTION_TOTAL":
             contrib_total = value
             continue
         elif stype == "CONTRIBUTION_TIME_PATTERN":
             contrib_pattern = value
+            continue
+        elif stype == "CONTRIBUTION_HOURLY_PATTERN":
+            contrib_hourly = s.get("meta", {})  # expect dict {hour: count}
             continue
         elif stype == "CONTRIBUTIONS_YEAR":
             year = s.get("meta", {}).get("year", value)
@@ -74,6 +78,16 @@ def pretty_print_signals(signals, truncate_len=120):
         print(f"{'CONTRIBUTION_TIME_PATTERN':<{col_widths[0]}} {contrib_pattern:<{col_widths[1]}} MEDIUM")
     for year in sorted(contrib_years.keys()):
         print(f"{'CONTRIBUTIONS_YEAR':<{col_widths[0]}} {year}: {contrib_years[year]:<{col_widths[1]}} HIGH")
+
+    # --- Print hourly contribution histogram ---
+    if contrib_hourly:
+        print(f"{'CONTRIBUTION_HOURLY_PATTERN':<{col_widths[0]}} {'':<{col_widths[1]}} MEDIUM")
+        line = ""
+        for hour in range(24):
+            count = contrib_hourly.get(hour, 0)
+            bar = "█" * min(count, 20)  # scale max 20 chars
+            line += f"{hour:02d}: {bar} ({count})\n"
+        print(line.rstrip())
 
     # --- Print extra profile info (GitHub Pages, pronouns, social links) ---
     for stype, value, confidence in extra_info:
