@@ -69,7 +69,7 @@ def build_identity_graph(signals):
         G.add_node("CONTRIBUTION_TOTAL", **total_signal)
         if username:
             G.add_edge(f"USERNAME:{username}", "CONTRIBUTION_TOTAL", relation="TOTAL_CONTRIBUTIONS")
-        # Link to yearly contributions
+        # Connect total to yearly contributions
         for year_node in contrib_years:
             G.add_edge("CONTRIBUTION_TOTAL", f"CONTRIBUTIONS_YEAR:{year_node['meta']['year']}", relation="YEARLY")
 
@@ -80,7 +80,7 @@ def build_identity_graph(signals):
         if total_signal:
             G.add_edge("CONTRIBUTION_TOTAL", "CONTRIBUTION_TIME_PATTERN", relation="PATTERN_REL")
 
-    # --- Hourly contributions ---
+    # --- Hourly contributions (24 nodes) ---
     hourly_signal = next((s for s in signals if s["signal_type"] == "CONTRIBUTION_HOURLY_PATTERN"), None)
     if hourly_signal:
         hourly_counts = hourly_signal.get("value", {})
@@ -94,7 +94,7 @@ def build_identity_graph(signals):
         if total_signal:
             G.add_edge("CONTRIBUTION_TOTAL", "CONTRIBUTION_HOUR:0", relation="HOURLY_PATTERN_START")
 
-    # --- Extra profile info (GitHub Pages, pronouns, social links) ---
+    # --- Extra profile info ---
     extra_signals = [s for s in signals if s["signal_type"] in ("GITHUB_PAGES", "PROFILE_PLATFORM", "PRONOUNS")]
     for s in extra_signals:
         node_id = f"{s['signal_type']}:{s['value']}"
