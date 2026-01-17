@@ -9,6 +9,7 @@ def collect(username):
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
     now = datetime.utcnow()
+
     user_url = f"https://api.github.com/users/{username}"
 
     try:
@@ -38,7 +39,7 @@ def collect(username):
                     "collected_at": collected_at,
                 })
 
-        # --- Counts ---
+        # --- Followers / Following counts ---
         for field in ["followers", "following", "public_repos"]:
             signals.append({
                 "signal_type": field.upper(),
@@ -58,11 +59,7 @@ def collect(username):
                     if login:
                         target.add(login)
 
-        mutuals = followers & following
-        followers_only = followers - mutuals
-        following_only = following - mutuals
-
-        for u in sorted(followers_only):
+        for u in sorted(followers - following):
             signals.append({
                 "signal_type": "FOLLOWER_USERNAME",
                 "value": u,
@@ -70,7 +67,7 @@ def collect(username):
                 "source": "GitHub",
                 "collected_at": collected_at,
             })
-        for u in sorted(following_only):
+        for u in sorted(following - followers):
             signals.append({
                 "signal_type": "FOLLOWING_USERNAME",
                 "value": u,
@@ -78,7 +75,7 @@ def collect(username):
                 "source": "GitHub",
                 "collected_at": collected_at,
             })
-        for u in sorted(mutuals):
+        for u in sorted(followers & following):
             signals.append({
                 "signal_type": "MUTUAL_CONNECTION",
                 "value": u,
@@ -98,7 +95,6 @@ def collect(username):
                     "source": "GitHub",
                     "collected_at": collected_at,
                 })
-
                 # Scrape README for pronouns and social links
                 readme_text = requests.get(readme_url, timeout=10).text
                 soup_readme = BeautifulSoup(readme_text, "html.parser")
@@ -140,7 +136,7 @@ def collect(username):
         except Exception:
             pass
 
-        # --- Contributions total, per year, weekday/weekend pattern ---
+        # --- Contributions: total, weekday/weekend, per year ---
         contrib_resp = requests.get(f"https://github.com/users/{username}/contributions", timeout=10)
         yearly = {}
         weekday_count = 0
@@ -159,6 +155,7 @@ def collect(username):
                     else:
                         weekend_count += count
 
+            # Total contributions
             total_contribs = sum(yearly.values())
             signals.append({
                 "signal_type": "CONTRIBUTION_TOTAL",
@@ -167,7 +164,7 @@ def collect(username):
                 "source": "GitHub",
                 "collected_at": collected_at
             })
-
+            # Weekday/weekend pattern
             signals.append({
                 "signal_type": "CONTRIBUTION_TIME_PATTERN",
                 "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
@@ -175,7 +172,7 @@ def collect(username):
                 "source": "GitHub",
                 "collected_at": collected_at
             })
-
+            # Per-year contributions
             for year, total in sorted(yearly.items()):
                 signals.append({
                     "signal_type": "CONTRIBUTIONS_YEAR",
@@ -186,9 +183,10 @@ def collect(username):
                     "meta": {"year": year, "count": total},
                 })
 
-        # --- Repo analysis ---
+        # --- Repo analysis and language profile ---
         repos_resp = requests.get(data["repos_url"], timeout=10)
         language_counter = Counter()
+        hourly_counts = [0] * 24  # For hourly contribution pattern
         if repos_resp.status_code == 200:
             for repo in repos_resp.json():
                 repo_name = repo.get("name", "unknown")
@@ -214,6 +212,7 @@ def collect(username):
                     pass
 
                 readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
+
                 signals.append({
                     "signal_type": "REPO_SUMMARY",
                     "value": (
@@ -234,13 +233,23 @@ def collect(username):
                     "collected_at": collected_at,
                 })
 
+                # --- Commits per repo for hourly pattern ---
+                commits_url = f"https://api.github.com/repos/{username}/{repo_name}/commits?author={username}&per_page=100"
+                try:
+                    r_commits = requests.get(commits_url, timeout=10)
+                    if r_commits.status_code == 200:
+                        for commit in r_commits.json():
+                            dt_str = commit.get("commit", {}).get("author", {}).get("date")
+                            if dt_str:
+                                dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%SZ")
+                                hourly_counts[dt.hour] += 1
+                except Exception:
+                    continue
+
         # --- Language profile ---
         if language_counter:
             total = sum(language_counter.values())
-            profile = ", ".join(
-                f"{lang} {int((count / total) * 100)}%"
-                for lang, count in language_counter.most_common()
-            )
+            profile = ", ".join(f"{lang} {int((count / total) * 100)}%" for lang, count in language_counter.most_common())
             signals.append({
                 "signal_type": "LANGUAGE_PROFILE",
                 "value": profile,
@@ -249,6 +258,15 @@ def collect(username):
                 "collected_at": collected_at,
                 "meta": dict(language_counter),
             })
+
+        # --- Hourly contribution pattern ---
+        signals.append({
+            "signal_type": "CONTRIBUTION_HOURLY_PATTERN",
+            "value": {str(h): c for h, c in enumerate(hourly_counts)},
+            "confidence": "MEDIUM",
+            "source": "GitHub commits",
+            "collected_at": collected_at
+        })
 
     except Exception as e:
         print(f"[!] GitHub plugin error: {e}")
