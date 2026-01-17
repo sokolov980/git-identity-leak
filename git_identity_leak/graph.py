@@ -8,6 +8,7 @@ def build_identity_graph(signals):
     G = nx.Graph()
 
     # --- Base nodes ---
+    username = next((s["value"] for s in signals if s["signal_type"] == "USERNAME"), None)
     for s in signals:
         stype = s.get("signal_type")
         value = s.get("value")
@@ -16,8 +17,15 @@ def build_identity_graph(signals):
         node_id = f"{stype}:{value}"
         G.add_node(node_id, **s)
 
-    # --- Explicit follower/following edges ---
-    username = next((s["value"] for s in signals if s["signal_type"] == "USERNAME"), None)
+        # Link most profile info directly to username
+        if username and stype not in ("REPO_SUMMARY", "INACTIVITY_SCORE",
+                                      "CONTRIBUTIONS_YEAR", "CONTRIBUTION_TOTAL",
+                                      "CONTRIBUTION_TIME_PATTERN",
+                                      "FOLLOWER_USERNAME", "FOLLOWING_USERNAME",
+                                      "MUTUAL_CONNECTION"):
+            G.add_edge(f"USERNAME:{username}", node_id, relation="PROFILE_INFO")
+
+    # --- Followers / Following edges ---
     if username:
         for s in signals:
             if s["signal_type"] in ("FOLLOWER_USERNAME", "FOLLOWING_USERNAME", "MUTUAL_CONNECTION"):
@@ -47,39 +55,41 @@ def build_identity_graph(signals):
             G.add_edge(f"USERNAME:{username}", node_id, relation="OWNS_REPO")
 
     # --- Contribution temporal graph ---
-    contrib_years = [
-        s for s in signals
-        if s.get("signal_type") == "CONTRIBUTIONS_YEAR" and "meta" in s
-    ]
+    contrib_years = [s for s in signals if s.get("signal_type") == "CONTRIBUTIONS_YEAR" and "meta" in s]
     contrib_years.sort(key=lambda s: int(s["meta"]["year"]))
-
     prev_node = None
     for s in contrib_years:
         year = s["meta"]["year"]
         count = s["meta"]["count"]
         node_id = f"CONTRIBUTIONS_YEAR:{year}"
-
-        # Add per-year node
         G.add_node(node_id, **s)
-
-        # Link temporal edges
         if prev_node:
             G.add_edge(prev_node, node_id, relation="TEMPORAL_NEXT")
         prev_node = node_id
 
-    # --- Contribution total node ---
+    # --- Total contributions ---
     total_signal = next((s for s in signals if s["signal_type"] == "CONTRIBUTION_TOTAL"), None)
     if total_signal:
         G.add_node("CONTRIBUTION_TOTAL", **total_signal)
+        if username:
+            G.add_edge(f"USERNAME:{username}", "CONTRIBUTION_TOTAL", relation="TOTAL_CONTRIBUTIONS")
 
-    # --- Contribution weekday/weekend pattern node ---
+    # --- Contribution time pattern ---
     pattern_signal = next((s for s in signals if s["signal_type"] == "CONTRIBUTION_TIME_PATTERN"), None)
     if pattern_signal:
         G.add_node("CONTRIBUTION_TIME_PATTERN", **pattern_signal)
-
-        # Link pattern node to total contributions
         if total_signal:
             G.add_edge("CONTRIBUTION_TOTAL", "CONTRIBUTION_TIME_PATTERN", relation="PATTERN_REL")
+
+    # --- GitHub pages + social links + pronouns ---
+    extra_signals = [s for s in signals if s["signal_type"] in (
+        "GITHUB_PAGES", "PROFILE_PLATFORM", "PRONOUNS"
+    )]
+    for s in extra_signals:
+        node_id = f"{s['signal_type']}:{s['value']}"
+        G.add_node(node_id, **s)
+        if username:
+            G.add_edge(f"USERNAME:{username}", node_id, relation="EXTRA_PROFILE_INFO")
 
     return G
 
