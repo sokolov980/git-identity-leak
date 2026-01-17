@@ -9,7 +9,6 @@ def collect(username):
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
     now = datetime.utcnow()
-
     user_url = f"https://api.github.com/users/{username}"
 
     try:
@@ -39,7 +38,7 @@ def collect(username):
                     "collected_at": collected_at,
                 })
 
-        # --- Followers / Following counts ---
+        # --- Counts ---
         for field in ["followers", "following", "public_repos"]:
             signals.append({
                 "signal_type": field.upper(),
@@ -59,7 +58,11 @@ def collect(username):
                     if login:
                         target.add(login)
 
-        for u in sorted(followers - following):
+        mutuals = followers & following
+        followers_only = followers - mutuals
+        following_only = following - mutuals
+
+        for u in sorted(followers_only):
             signals.append({
                 "signal_type": "FOLLOWER_USERNAME",
                 "value": u,
@@ -67,7 +70,7 @@ def collect(username):
                 "source": "GitHub",
                 "collected_at": collected_at,
             })
-        for u in sorted(following - followers):
+        for u in sorted(following_only):
             signals.append({
                 "signal_type": "FOLLOWING_USERNAME",
                 "value": u,
@@ -75,7 +78,7 @@ def collect(username):
                 "source": "GitHub",
                 "collected_at": collected_at,
             })
-        for u in sorted(followers & following):
+        for u in sorted(mutuals):
             signals.append({
                 "signal_type": "MUTUAL_CONNECTION",
                 "value": u,
@@ -110,7 +113,6 @@ def collect(username):
                                 "source": "GitHub README",
                                 "collected_at": collected_at
                             })
-
                 # Detect pronouns in README
                 match = re.search(r'(?i)pronouns?\s*[:\-]\s*([a-zA-Z/]+)', readme_text)
                 if match:
@@ -138,7 +140,7 @@ def collect(username):
         except Exception:
             pass
 
-        # --- Contributions per year + total + weekday/weekend pattern ---
+        # --- Contributions total, per year, weekday/weekend pattern ---
         contrib_resp = requests.get(f"https://github.com/users/{username}/contributions", timeout=10)
         yearly = {}
         weekday_count = 0
@@ -157,37 +159,32 @@ def collect(username):
                     else:
                         weekend_count += count
 
-        # Total contributions
-        total_contribs = sum(yearly.values())
-        signals.append({
-            "signal_type": "CONTRIBUTION_TOTAL",
-            "value": total_contribs,
-            "confidence": "HIGH",
-            "source": "GitHub",
-            "collected_at": collected_at,
-            "meta": {"weekdays": weekday_count, "weekends": weekend_count}
-        })
-
-        # Weekday/weekend pattern
-        signals.append({
-            "signal_type": "CONTRIBUTION_TIME_PATTERN",
-            "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
-            "confidence": "MEDIUM",
-            "source": "GitHub",
-            "collected_at": collected_at,
-            "meta": {"weekdays": weekday_count, "weekends": weekend_count}
-        })
-
-        # Per-year contributions
-        for year, total in sorted(yearly.items()):
+            total_contribs = sum(yearly.values())
             signals.append({
-                "signal_type": "CONTRIBUTIONS_YEAR",
-                "value": year,
+                "signal_type": "CONTRIBUTION_TOTAL",
+                "value": str(total_contribs),
                 "confidence": "HIGH",
                 "source": "GitHub",
-                "collected_at": collected_at,
-                "meta": {"year": year, "count": total}
+                "collected_at": collected_at
             })
+
+            signals.append({
+                "signal_type": "CONTRIBUTION_TIME_PATTERN",
+                "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
+                "confidence": "MEDIUM",
+                "source": "GitHub",
+                "collected_at": collected_at
+            })
+
+            for year, total in sorted(yearly.items()):
+                signals.append({
+                    "signal_type": "CONTRIBUTIONS_YEAR",
+                    "value": year,
+                    "confidence": "HIGH",
+                    "source": "GitHub",
+                    "collected_at": collected_at,
+                    "meta": {"year": year, "count": total},
+                })
 
         # --- Repo analysis ---
         repos_resp = requests.get(data["repos_url"], timeout=10)
@@ -217,7 +214,6 @@ def collect(username):
                     pass
 
                 readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
-
                 signals.append({
                     "signal_type": "REPO_SUMMARY",
                     "value": (
