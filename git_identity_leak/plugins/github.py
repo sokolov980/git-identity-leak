@@ -1,9 +1,16 @@
 # git_identity_leak/plugins/github.py
+import os
 import requests
 from datetime import datetime
 from collections import Counter
 from bs4 import BeautifulSoup
 import re
+import json
+
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")  # Needed for GraphQL contributions
+
+GRAPHQL_URL = "https://api.github.com/graphql"
+HEADERS = {"Authorization": f"bearer {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
 
 def collect(username):
     signals = []
@@ -146,46 +153,71 @@ def collect(username):
         except Exception:
             pass
 
-        # --- Contributions: total, weekday/weekend, per year ---
-        yearly = {}
+        # --- Contributions via GraphQL API ---
+        total_contribs = 0
+        yearly_counts = {}
+        hourly_counts = [0]*24
         weekday_count = 0
         weekend_count = 0
-        contrib_resp = requests.get(f"https://github.com/users/{username}/contributions", timeout=10)
-        if contrib_resp.status_code == 200:
-            soup = BeautifulSoup(contrib_resp.text, "html.parser")
-            for rect in soup.find_all("rect", class_="ContributionCalendar-day"):
-                date = rect.get("data-date")
-                count = int(rect.get("data-count", 0))
-                if date:
-                    dt = datetime.strptime(date, "%Y-%m-%d")
-                    year = str(dt.year)
-                    yearly[year] = yearly.get(year, 0) + count
-                    if dt.weekday() < 5:
-                        weekday_count += count
-                    else:
-                        weekend_count += count
 
-        total_contribs = sum(yearly.values())
+        if GITHUB_TOKEN:
+            query = {
+                "query": """
+                query($login:String!) {
+                  user(login:$login) {
+                    contributionsCollection {
+                      contributionCalendar {
+                        totalContributions
+                        weeks {
+                          contributionDays {
+                            date
+                            contributionCount
+                          }
+                        }
+                      }
+                    }
+                  }
+                }""",
+                "variables": {"login": username}
+            }
+            resp = requests.post(GRAPHQL_URL, headers=HEADERS, json=query, timeout=10)
+            if resp.status_code == 200:
+                data_graph = resp.json()
+                weeks = data_graph["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+                for week in weeks:
+                    for day in week["contributionDays"]:
+                        date = day["date"]
+                        count = day["contributionCount"]
+                        dt = datetime.strptime(date, "%Y-%m-%d")
+                        total_contribs += count
+                        year = str(dt.year)
+                        yearly_counts[year] = yearly_counts.get(year, 0) + count
+                        if dt.weekday() < 5:
+                            weekday_count += count
+                        else:
+                            weekend_count += count
+
+        # Append contribution signals
         signals.append({
             "signal_type": "CONTRIBUTION_TOTAL",
             "value": str(total_contribs),
             "confidence": "HIGH",
-            "source": "GitHub",
+            "source": "GitHub GraphQL" if GITHUB_TOKEN else "Scraped",
             "collected_at": collected_at
         })
         signals.append({
             "signal_type": "CONTRIBUTION_TIME_PATTERN",
             "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
             "confidence": "MEDIUM",
-            "source": "GitHub",
+            "source": "GitHub GraphQL" if GITHUB_TOKEN else "Scraped",
             "collected_at": collected_at
         })
-        for year, count in sorted(yearly.items()):
+        for year, count in sorted(yearly_counts.items()):
             signals.append({
                 "signal_type": "CONTRIBUTIONS_YEAR",
                 "value": year,
                 "confidence": "HIGH",
-                "source": "GitHub",
+                "source": "GitHub GraphQL" if GITHUB_TOKEN else "Scraped",
                 "collected_at": collected_at,
                 "meta": {"year": year, "count": count},
             })
@@ -193,7 +225,6 @@ def collect(username):
         # --- Repo analysis + language profile + hourly commits ---
         repos_resp = requests.get(data["repos_url"], timeout=10)
         language_counter = Counter()
-        hourly_counts = [0]*24
         if repos_resp.status_code == 200:
             for repo in repos_resp.json():
                 repo_name = repo.get("name", "unknown")
