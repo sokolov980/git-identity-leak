@@ -1,20 +1,13 @@
 # git_identity_leak/plugins/github.py
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import Counter
 from bs4 import BeautifulSoup
 
 def collect(username):
-    """
-    Collect GitHub OSINT signals for a given username using GitHub REST API v3.
-    Includes:
-    - Basic profile info: name, username, avatar, bio, email, company, location, blog
-    - Followers, following, public repos
-    - Profile README if exists
-    - Repo info: combined REPO_SUMMARY with stars, description, language, last updated, README URL
-    - Contributions per year (scraped from contributions calendar)
-    """
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
+    now = datetime.utcnow()
 
     user_url = f"https://api.github.com/users/{username}"
     try:
@@ -44,25 +37,40 @@ def collect(username):
                     "collected_at": collected_at
                 })
 
-        # --- Followers, following, public repos ---
+        # --- Followers / Following counts ---
         for field in ["followers", "following", "public_repos"]:
-            if data.get(field) is not None:
-                signals.append({
-                    "signal_type": field.upper(),
-                    "value": str(data[field]),
-                    "confidence": "HIGH",
-                    "source": "GitHub",
-                    "collected_at": collected_at
-                })
+            signals.append({
+                "signal_type": field.upper(),
+                "value": str(data.get(field, 0)),
+                "confidence": "HIGH",
+                "source": "GitHub",
+                "collected_at": collected_at
+            })
 
-        # --- Profile README detection ---
-        profile_readme_url = f"https://raw.githubusercontent.com/{username}/{username}/master/README.md"
-        try:
-            resp = requests.head(profile_readme_url, timeout=5)
+        # --- Followers usernames ---
+        for rel, stype in [
+            ("followers", "FOLLOWER_USERNAME"),
+            ("following", "FOLLOWING_USERNAME")
+        ]:
+            url = f"https://api.github.com/users/{username}/{rel}"
+            resp = requests.get(url, timeout=10)
             if resp.status_code == 200:
+                for u in resp.json():
+                    signals.append({
+                        "signal_type": stype,
+                        "value": u.get("login"),
+                        "confidence": "MEDIUM",
+                        "source": "GitHub",
+                        "collected_at": collected_at
+                    })
+
+        # --- Profile README ---
+        readme_url = f"https://raw.githubusercontent.com/{username}/{username}/master/README.md"
+        try:
+            if requests.head(readme_url, timeout=5).status_code == 200:
                 signals.append({
                     "signal_type": "PROFILE_README",
-                    "value": profile_readme_url,
+                    "value": readme_url,
                     "confidence": "MEDIUM",
                     "source": "GitHub",
                     "collected_at": collected_at
@@ -70,57 +78,114 @@ def collect(username):
         except Exception:
             pass
 
-        # --- Contributions per year (scrape contributions calendar) ---
+        # --- Contributions per year ---
         contrib_url = f"https://github.com/users/{username}/contributions"
         try:
             r = requests.get(contrib_url, timeout=10)
             if r.status_code == 200:
                 soup = BeautifulSoup(r.text, "html.parser")
-                years = {}
+                yearly = {}
                 for rect in soup.find_all("rect", {"class": "ContributionCalendar-day"}):
                     date = rect.get("data-date")
-                    count = int(rect.get("data-count", "0"))
+                    count = int(rect.get("data-count", 0))
                     if date:
                         year = date.split("-")[0]
-                        years[year] = years.get(year, 0) + count
-                for year, total in sorted(years.items(), reverse=True):
+                        yearly[year] = yearly.get(year, 0) + count
+
+                for year, total in sorted(yearly.items()):
                     signals.append({
                         "signal_type": "CONTRIBUTIONS",
                         "value": f"{year}: {total}",
                         "confidence": "MEDIUM",
                         "source": "GitHub",
-                        "collected_at": collected_at
+                        "collected_at": collected_at,
+                        "meta": {"year": year, "count": total}
                     })
         except Exception:
             pass
 
-        # --- Repo info ---
-        repos_url = data.get("repos_url")
-        if repos_url:
-            repos = requests.get(repos_url, timeout=10).json()
-            for repo in repos:
-                repo_name = repo.get("name", "unknown")
-                stars = repo.get("stargazers_count", 0)
-                description = repo.get("description") or ""
-                description = description.replace("\n", " ").strip()
-                language = repo.get("language") or ""
-                updated_at = repo.get("updated_at", "unknown").split("T")[0]
-                readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
+        # --- Repo analysis ---
+        repos = requests.get(data["repos_url"], timeout=10).json()
+        language_counter = Counter()
 
-                summary = (
+        for repo in repos:
+            repo_name = repo.get("name")
+            stars = repo.get("stargazers_count", 0)
+            description = (repo.get("description") or "").replace("\n", " ").strip()
+            language = repo.get("language") or "Unknown"
+            updated_at = repo.get("updated_at", "").split("T")[0]
+
+            if language:
+                language_counter[language] += 1
+
+            # Inactivity scoring
+            risk = "UNKNOWN"
+            try:
+                last_update = datetime.strptime(updated_at, "%Y-%m-%d")
+                days = (now - last_update).days
+                if days < 90:
+                    risk = "LOW"
+                elif days < 365:
+                    risk = "MEDIUM"
+                else:
+                    risk = "HIGH"
+            except Exception:
+                pass
+
+            readme_url = f"https://raw.githubusercontent.com/{username}/{repo_name}/master/README.md"
+
+            signals.append({
+                "signal_type": "REPO_SUMMARY",
+                "value": (
                     f"{repo_name} | Stars: {stars} | {description} | "
-                    f"Lang: {language} | Last Updated: {updated_at} | README: {readme_url}"
-                )
+                    f"Lang: {language} | Last Updated: {updated_at} | "
+                    f"Inactivity: {risk} | README: {readme_url}"
+                ),
+                "confidence": "HIGH",
+                "source": "GitHub",
+                "collected_at": collected_at
+            })
 
-                signals.append({
-                    "signal_type": "REPO_SUMMARY",
-                    "value": summary,
-                    "confidence": "HIGH",
-                    "source": "GitHub",
-                    "collected_at": collected_at
-                })
+            signals.append({
+                "signal_type": "INACTIVITY_SCORE",
+                "value": f"{repo_name}: {risk}",
+                "confidence": "MEDIUM",
+                "source": "GitHub",
+                "collected_at": collected_at
+            })
+
+        # --- Language profile ---
+        if language_counter:
+            total = sum(language_counter.values())
+            profile = ", ".join(
+                f"{lang} {int((count/total)*100)}%"
+                for lang, count in language_counter.most_common()
+            )
+            signals.append({
+                "signal_type": "LANGUAGE_PROFILE",
+                "value": profile,
+                "confidence": "HIGH",
+                "source": "GitHub",
+                "collected_at": collected_at,
+                "meta": dict(language_counter)
+            })
+
+        # --- Cross-platform username correlation ---
+        for platform, base in {
+            "X": "https://x.com/",
+            "Reddit": "https://reddit.com/user/",
+            "GitLab": "https://gitlab.com/",
+            "Dev.to": "https://dev.to/"
+        }.items():
+            signals.append({
+                "signal_type": "PROFILE_PLATFORM",
+                "value": f"{platform}: {base}{username}",
+                "confidence": "LOW",
+                "source": "Username correlation",
+                "collected_at": collected_at
+            })
 
     except Exception as e:
-        print(f"[!] GitHub plugin error for user {username}: {e}")
+        print(f"[!] GitHub plugin error: {e}")
 
     return signals
