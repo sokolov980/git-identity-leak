@@ -10,6 +10,7 @@ def collect(username):
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
     now = datetime.utcnow()
+
     token = os.environ.get("GITHUB_TOKEN")
     headers = {"Authorization": f"token {token}"} if token else {}
 
@@ -149,10 +150,12 @@ def collect(username):
         except Exception:
             pass
 
-        # --- Contributions: total, weekday/weekend, per year ---
+        # --- Contributions: total, weekday/weekend, per year + daily data ---
         yearly = {}
         weekday_count = 0
         weekend_count = 0
+        daily_contributions = []
+
         contrib_resp = requests.get(f"https://github.com/users/{username}/contributions", timeout=10)
         if contrib_resp.status_code == 200:
             soup = BeautifulSoup(contrib_resp.text, "html.parser")
@@ -163,6 +166,7 @@ def collect(username):
                     dt = datetime.strptime(date, "%Y-%m-%d")
                     year = str(dt.year)
                     yearly[year] = yearly.get(year, 0) + count
+                    daily_contributions.append({"date": date, "count": count})
                     if dt.weekday() < 5:
                         weekday_count += count
                     else:
@@ -192,6 +196,15 @@ def collect(username):
                 "collected_at": collected_at,
                 "meta": {"year": year, "count": count},
             })
+
+        # Add daily contributions for heatmap
+        signals.append({
+            "signal_type": "CONTRIBUTIONS_YEARLY_DATES",
+            "value": daily_contributions,
+            "confidence": "HIGH",
+            "source": "GitHub",
+            "collected_at": collected_at
+        })
 
         # --- Repo analysis + language profile + hourly commits ---
         repos_resp = requests.get(data["repos_url"], headers=headers, timeout=10)
