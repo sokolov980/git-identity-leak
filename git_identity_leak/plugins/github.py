@@ -102,31 +102,44 @@ def collect(username):
             pass
 
         # --- Contributions per year ---
-        contrib_url = f"https://github.com/users/{username}/contributions"
-        try:
-            r = requests.get(contrib_url, timeout=10)
-            if r.status_code == 200:
-                soup = BeautifulSoup(r.text, "html.parser")
-                yearly = {}
+contrib_url = f"https://github.com/users/{username}/contributions"
+try:
+    r = requests.get(contrib_url, timeout=10)
+    if r.status_code == 200:
+        soup = BeautifulSoup(r.text, "html.parser")
+        yearly = {}
 
-                for rect in soup.find_all("rect", {"class": "ContributionCalendar-day"}):
-                    date = rect.get("data-date")
-                    count = int(rect.get("data-count", 0))
-                    if date:
-                        year = date.split("-")[0]
-                        yearly[year] = yearly.get(year, 0) + count
+        for rect in soup.find_all("rect", {"class": "ContributionCalendar-day"}):
+            date = rect.get("data-date")
+            count = int(rect.get("data-count", 0))
+            if date:
+                year = date.split("-")[0]
+                yearly[year] = yearly.get(year, 0) + count
 
-                for year, total in sorted(yearly.items()):
-                    signals.append({
-                        "signal_type": "CONTRIBUTIONS",
-                        "value": f"{year}: {total}",
-                        "confidence": "MEDIUM",
-                        "source": "GitHub",
-                        "collected_at": collected_at,
-                        "meta": {"year": year, "count": total}
-                    })
-        except Exception:
-            pass
+        for year, total in sorted(yearly.items()):
+            # Human-readable signal (CLI / report)
+            signals.append({
+                "signal_type": "CONTRIBUTIONS",
+                "value": f"{year}: {total}",
+                "confidence": "MEDIUM",
+                "source": "GitHub",
+                "collected_at": collected_at,
+            })
+
+            # Graph-ready signal
+            signals.append({
+                "signal_type": "CONTRIBUTIONS_YEAR",
+                "value": year,
+                "confidence": "HIGH",
+                "source": "GitHub",
+                "collected_at": collected_at,
+                "meta": {
+                    "year": year,
+                    "count": total
+                }
+            })
+except Exception:
+    pass
 
         # --- Repo analysis ---
         repos = requests.get(data["repos_url"], timeout=10).json()
