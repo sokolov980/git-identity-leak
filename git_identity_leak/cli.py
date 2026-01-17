@@ -6,31 +6,11 @@ from git_identity_leak.analysis import full_analysis
 from git_identity_leak.graph import build_identity_graph, save_graph_json
 from git_identity_leak.report import save_report
 
-TRUNCATE_LEN = 120  # Increase so URLs are fully visible
+TRUNCATE_LEN = 120
 
-def ascii_contrib_graph(yearly):
-    """
-    Create a simple ASCII graph for contributions per year.
-    Each '#' represents ~5% of the maximum yearly contributions.
-    """
-    if not yearly:
-        return ""
-    max_count = max(yearly.values())
-    lines = []
-    for year, count in sorted(yearly.items()):
-        bar_len = int((count / max_count) * 40) if max_count else 0
-        bar = "#" * bar_len
-        lines.append(f"{year}: {bar} ({count})")
-    return "\n".join(lines)
-
-def pretty_print_signals(signals, truncate_len=120):
-    """
-    Pretty print GitHub signals.
-    Shows contributions, followers, following, mutuals, pronouns, GitHub Pages, languages.
-    """
-    print("[DEBUG] Signals:")
+def pretty_print_signals(signals, truncate_len=TRUNCATE_LEN):
     if not signals:
-        print("  No signals collected.")
+        print("No signals collected.")
         return
 
     headers = ["TYPE", "VALUE", "CONFIDENCE"]
@@ -40,13 +20,10 @@ def pretty_print_signals(signals, truncate_len=120):
     print(f"{headers[0]:<{col_widths[0]}} {headers[1]:<{col_widths[1]}} {headers[2]:<{col_widths[2]}}")
     print(divider)
 
-    # Aggregate info
     contrib_total = None
     contrib_pattern = None
     contrib_years = {}
-    followers = []
-    following = []
-    mutuals = []
+    hourly_pattern = {}
     extra_info = []
 
     for s in signals:
@@ -65,20 +42,13 @@ def pretty_print_signals(signals, truncate_len=120):
             count = s.get("meta", {}).get("count", 0)
             contrib_years[year] = count
             continue
-        elif stype == "FOLLOWER_USERNAME":
-            followers.append(value)
+        elif stype == "CONTRIBUTION_HOURLY_PATTERN":
+            hourly_pattern = s.get("value", {})
             continue
-        elif stype == "FOLLOWING_USERNAME":
-            following.append(value)
-            continue
-        elif stype == "MUTUAL_CONNECTION":
-            mutuals.append(value)
-            continue
-        elif stype in ("GITHUB_PAGES", "PRONOUNS", "PROFILE_PLATFORM", "LANGUAGE_PROFILE"):
+        elif stype in ("GITHUB_PAGES", "PRONOUNS", "PROFILE_PLATFORM"):
             extra_info.append((stype, value, confidence))
             continue
 
-        # REPO_SUMMARY
         if stype == "REPO_SUMMARY":
             parts = [p.strip() for p in value.split("|")]
             print(f"{stype:<{col_widths[0]}} {parts[0]:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
@@ -86,46 +56,40 @@ def pretty_print_signals(signals, truncate_len=120):
                 print(f"{'':<{col_widths[0]}} {part:<{col_widths[1]}}")
             continue
 
-        display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
+        display_value = value if len(value) <= truncate_len else value[:truncate_len-3]+"..."
         print(f"{stype:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
-    # Contributions
-    if contrib_total is not None:
+    # --- Contributions ---
+    if contrib_total:
         print(f"{'CONTRIBUTION_TOTAL':<{col_widths[0]}} {contrib_total:<{col_widths[1]}} HIGH")
-    if contrib_pattern is not None:
+    if contrib_pattern:
         print(f"{'CONTRIBUTION_TIME_PATTERN':<{col_widths[0]}} {contrib_pattern:<{col_widths[1]}} MEDIUM")
-    if contrib_years:
-        print("\n[Contributions per year]")
-        print(ascii_contrib_graph(contrib_years))
+    for year in sorted(contrib_years.keys()):
+        print(f"{'CONTRIBUTIONS_YEAR':<{col_widths[0]}} {year}: {contrib_years[year]:<{col_widths[1]}} HIGH")
 
-    # Followers / Following / Mutuals
-    if followers:
-        print(f"\nFollowers ({len(followers)}): {', '.join(followers)}")
-    if following:
-        print(f"Following ({len(following)}): {', '.join(following)}")
-    if mutuals:
-        print(f"Mutual connections ({len(mutuals)}): {', '.join(mutuals)}")
+    # --- Hourly contribution pattern ---
+    if hourly_pattern:
+        print(f"{'CONTRIBUTION_HOURLY_PATTERN':<{col_widths[0]}} Hour:Count")
+        for h in range(24):
+            count = hourly_pattern.get(str(h), 0)
+            print(f"{'':<{col_widths[0]}} {h}: {count}")
 
-    # Extra profile info
+    # --- Extra profile info ---
     for stype, value, confidence in extra_info:
-        display_value = value if len(value) <= truncate_len else value[:truncate_len-3] + "..."
+        display_value = value if len(value) <= truncate_len else value[:truncate_len-3]+"..."
         print(f"{stype:<{col_widths[0]}} {display_value:<{col_widths[1]}} {confidence:<{col_widths[2]}}")
 
     print(divider)
 
 
 def pretty_print_dict(title, d):
-    print(f"[DEBUG] {title}:")
-    if not d:
-        print("  No data.")
-        return
-    print(json.dumps(d, indent=2))
+    print(f"{title}:")
+    print(json.dumps(d, indent=2) if d else "No data.")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Git Identity Leak OSINT Tool")
-    parser.add_argument("--username", required=True, help="Target username to analyze")
-    parser.add_argument("--self-audit", action="store_true", help="Run self-audit only")
+    parser.add_argument("--username", required=True, help="Target username")
     parser.add_argument("--images", help="Directory to store images")
     parser.add_argument("--graph-output", help="File to save graph JSON")
     parser.add_argument("--output", help="File to save report JSON")
@@ -135,11 +99,7 @@ def main():
     args = parser.parse_args()
 
     if args.images:
-        try:
-            os.makedirs(args.images, exist_ok=True)
-        except Exception as e:
-            print(f"[!] Could not create image directory '{args.images}': {e}")
-            args.images = None
+        os.makedirs(args.images, exist_ok=True)
 
     signals, temporal_data, stylometry_data = full_analysis(
         username=args.username,
