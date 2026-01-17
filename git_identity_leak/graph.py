@@ -17,15 +17,16 @@ def build_identity_graph(signals):
         node_id = f"{stype}:{value}"
         G.add_node(node_id, **s)
 
-        # Link most profile info directly to username
-        if username and stype not in ("REPO_SUMMARY", "INACTIVITY_SCORE",
-                                      "CONTRIBUTIONS_YEAR", "CONTRIBUTION_TOTAL",
-                                      "CONTRIBUTION_TIME_PATTERN",
-                                      "FOLLOWER_USERNAME", "FOLLOWING_USERNAME",
-                                      "MUTUAL_CONNECTION"):
+        # Link profile info to username
+        if username and stype not in (
+            "REPO_SUMMARY", "INACTIVITY_SCORE",
+            "CONTRIBUTIONS_YEAR", "CONTRIBUTION_TOTAL",
+            "CONTRIBUTION_TIME_PATTERN", "CONTRIBUTION_HOURLY_PATTERN",
+            "FOLLOWER_USERNAME", "FOLLOWING_USERNAME", "MUTUAL_CONNECTION"
+        ):
             G.add_edge(f"USERNAME:{username}", node_id, relation="PROFILE_INFO")
 
-    # --- Followers / Following edges ---
+    # --- Followers / Following / Mutual connections edges ---
     if username:
         for s in signals:
             if s["signal_type"] in ("FOLLOWER_USERNAME", "FOLLOWING_USERNAME", "MUTUAL_CONNECTION"):
@@ -60,7 +61,6 @@ def build_identity_graph(signals):
     prev_node = None
     for s in contrib_years:
         year = s["meta"]["year"]
-        count = s["meta"]["count"]
         node_id = f"CONTRIBUTIONS_YEAR:{year}"
         G.add_node(node_id, **s)
         if prev_node:
@@ -81,10 +81,15 @@ def build_identity_graph(signals):
         if total_signal:
             G.add_edge("CONTRIBUTION_TOTAL", "CONTRIBUTION_TIME_PATTERN", relation="PATTERN_REL")
 
+    # --- Hourly contribution pattern ---
+    hourly_signal = next((s for s in signals if s["signal_type"] == "CONTRIBUTION_HOURLY_PATTERN"), None)
+    if hourly_signal:
+        G.add_node("CONTRIBUTION_HOURLY_PATTERN", **hourly_signal)
+        if total_signal:
+            G.add_edge("CONTRIBUTION_TOTAL", "CONTRIBUTION_HOURLY_PATTERN", relation="HOURLY_PATTERN")
+
     # --- GitHub pages + social links + pronouns ---
-    extra_signals = [s for s in signals if s["signal_type"] in (
-        "GITHUB_PAGES", "PROFILE_PLATFORM", "PRONOUNS"
-    )]
+    extra_signals = [s for s in signals if s["signal_type"] in ("GITHUB_PAGES", "PROFILE_PLATFORM", "PRONOUNS")]
     for s in extra_signals:
         node_id = f"{s['signal_type']}:{s['value']}"
         G.add_node(node_id, **s)
