@@ -1,13 +1,10 @@
 # git_identity_leak/plugins/github.py
-
 import os
 import requests
 from datetime import datetime
 from collections import Counter
 from bs4 import BeautifulSoup
 import re
-
-GITHUB_BASE = "https://api.github.com"
 
 def collect(username):
     signals = []
@@ -17,257 +14,140 @@ def collect(username):
     token = os.environ.get("GITHUB_TOKEN")
     headers = {"Authorization": f"token {token}"} if token else {}
 
-    def get_all_users(url):
-        users = set()
-        page = 1
-        while True:
-            r = requests.get(
-                f"{url}?per_page=100&page={page}",
-                headers=headers,
-                timeout=10
-            )
-            if r.status_code != 200:
-                break
-            data = r.json()
-            if not data:
-                break
-            for u in data:
-                if u.get("login"):
-                    users.add(u["login"])
-            page += 1
-        return users
-
     try:
-        # ───────────────────────── BASIC PROFILE ─────────────────────────
-        r = requests.get(f"{GITHUB_BASE}/users/{username}", headers=headers, timeout=10)
+        # ---------------- BASIC PROFILE ----------------
+        r = requests.get(f"https://api.github.com/users/{username}", headers=headers, timeout=10)
         if r.status_code != 200:
             return signals
 
         data = r.json()
 
-        fields = [
-            ("name", "NAME", "HIGH"),
-            ("login", "USERNAME", "HIGH"),
-            ("avatar_url", "IMAGE", "HIGH"),
-            ("bio", "BIO", "MEDIUM"),
-            ("email", "EMAIL", "HIGH"),
-            ("company", "COMPANY", "MEDIUM"),
-            ("location", "LOCATION", "MEDIUM"),
-            ("blog", "URL", "MEDIUM"),
-        ]
+        def add(sig, val, conf="HIGH", src="GitHub"):
+            signals.append({
+                "signal_type": sig,
+                "value": val,
+                "confidence": conf,
+                "source": src,
+                "collected_at": collected_at
+            })
 
-        for field, stype, conf in fields:
+        for field, sig in [
+            ("name", "NAME"),
+            ("login", "USERNAME"),
+            ("avatar_url", "IMAGE"),
+            ("bio", "BIO"),
+            ("company", "COMPANY"),
+            ("location", "LOCATION"),
+            ("blog", "URL"),
+            ("email", "EMAIL"),
+        ]:
             if data.get(field):
-                signals.append({
-                    "signal_type": stype,
-                    "value": data[field],
-                    "confidence": conf,
-                    "source": "GitHub",
-                    "collected_at": collected_at,
-                })
+                add(sig, data[field])
 
-        for field in ["followers", "following", "public_repos"]:
-            signals.append({
-                "signal_type": field.upper(),
-                "value": str(data.get(field, 0)),
-                "confidence": "HIGH",
-                "source": "GitHub",
-                "collected_at": collected_at,
-            })
+        add("FOLLOWERS", str(data.get("followers", 0)))
+        add("FOLLOWING", str(data.get("following", 0)))
+        add("PUBLIC_REPOS", str(data.get("public_repos", 0)))
 
-        # ───────────────────────── FOLLOW GRAPH ─────────────────────────
-        followers = get_all_users(f"{GITHUB_BASE}/users/{username}/followers")
-        following = get_all_users(f"{GITHUB_BASE}/users/{username}/following")
+        # ---------------- CONTRIBUTIONS (SALLAR METHOD) ----------------
+        profile_html = requests.get(f"https://github.com/{username}", timeout=10).text
+        soup = BeautifulSoup(profile_html, "html.parser")
 
-        for u in sorted(followers - following):
-            signals.append({
-                "signal_type": "FOLLOWER_USERNAME",
-                "value": u,
-                "confidence": "MEDIUM",
-                "source": "GitHub",
-                "collected_at": collected_at,
-            })
-
-        for u in sorted(following - followers):
-            signals.append({
-                "signal_type": "FOLLOWING_USERNAME",
-                "value": u,
-                "confidence": "MEDIUM",
-                "source": "GitHub",
-                "collected_at": collected_at,
-            })
-
-        for u in sorted(followers & following):
-            signals.append({
-                "signal_type": "MUTUAL_CONNECTION",
-                "value": u,
-                "confidence": "HIGH",
-                "source": "GitHub",
-                "collected_at": collected_at,
-            })
-
-        # ───────────────────────── README / SOCIAL ─────────────────────────
-        readme_url = f"https://raw.githubusercontent.com/{username}/{username}/master/README.md"
-        try:
-            if requests.head(readme_url, timeout=5).status_code == 200:
-                text = requests.get(readme_url, timeout=10).text
-                soup = BeautifulSoup(text, "html.parser")
-
-                signals.append({
-                    "signal_type": "PROFILE_README",
-                    "value": readme_url,
-                    "confidence": "MEDIUM",
-                    "source": "GitHub",
-                    "collected_at": collected_at,
-                })
-
-                for a in soup.find_all("a", href=True):
-                    href = a["href"]
-                    for p in ["twitter.com", "x.com", "linkedin.com", "reddit.com", "gitlab.com", "dev.to"]:
-                        if p in href:
-                            signals.append({
-                                "signal_type": "PROFILE_PLATFORM",
-                                "value": href,
-                                "confidence": "MEDIUM",
-                                "source": "GitHub README",
-                                "collected_at": collected_at,
-                            })
-
-                m = re.search(r'(?i)pronouns?\s*[:\-]\s*([a-zA-Z/]+)', text)
-                if m:
-                    signals.append({
-                        "signal_type": "PRONOUNS",
-                        "value": m.group(1),
-                        "confidence": "MEDIUM",
-                        "source": "GitHub README",
-                        "collected_at": collected_at,
-                    })
-        except Exception:
-            pass
-
-        # ───────────────────────── CONTRIBUTIONS (FIXED) ─────────────────────────
+        daily_contribs = []
         yearly = {}
         weekday_count = 0
         weekend_count = 0
-        daily = []
 
-        html = requests.get(
-            f"https://github.com/users/{username}/contributions",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10
+        for rect in soup.select("svg rect[data-date][data-count]"):
+            date = rect.get("data-date")
+            count = int(rect.get("data-count", 0))
+
+            if not date:
+                continue
+
+            daily_contribs.append({"date": date, "count": count})
+
+            dt = datetime.strptime(date, "%Y-%m-%d")
+            year = str(dt.year)
+            yearly[year] = yearly.get(year, 0) + count
+
+            if dt.weekday() < 5:
+                weekday_count += count
+            else:
+                weekend_count += count
+
+        total_contribs = sum(yearly.values())
+
+        add("CONTRIBUTION_TOTAL", str(total_contribs))
+        add(
+            "CONTRIBUTION_TIME_PATTERN",
+            f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
+            "MEDIUM"
         )
 
-        if html.status_code == 200:
-            soup = BeautifulSoup(html.text, "html.parser")
-            for rect in soup.select("rect[data-date][data-count]"):
-                date = rect["data-date"]
-                count = int(rect["data-count"])
-
-                daily.append({"date": date, "count": count})
-
-                dt = datetime.strptime(date, "%Y-%m-%d")
-                yearly.setdefault(str(dt.year), 0)
-                yearly[str(dt.year)] += count
-
-                if dt.weekday() < 5:
-                    weekday_count += count
-                else:
-                    weekend_count += count
-
-        total = sum(yearly.values())
-
-        signals.append({
-            "signal_type": "CONTRIBUTION_TOTAL",
-            "value": str(total),
-            "confidence": "HIGH",
-            "source": "GitHub",
-            "collected_at": collected_at,
-        })
-
-        signals.append({
-            "signal_type": "CONTRIBUTION_TIME_PATTERN",
-            "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
-            "confidence": "MEDIUM",
-            "source": "GitHub",
-            "collected_at": collected_at,
-        })
-
-        for y, c in sorted(yearly.items()):
+        for year, count in sorted(yearly.items()):
             signals.append({
                 "signal_type": "CONTRIBUTIONS_YEAR",
-                "value": y,
+                "value": year,
                 "confidence": "HIGH",
                 "source": "GitHub",
                 "collected_at": collected_at,
-                "meta": {"year": y, "count": c},
+                "meta": {"year": year, "count": count}
             })
 
-        if daily:
+        if daily_contribs:
             signals.append({
                 "signal_type": "CONTRIBUTIONS_YEARLY_DATES",
-                "value": sorted(daily, key=lambda x: x["date"]),
+                "value": daily_contribs,
                 "confidence": "HIGH",
-                "source": "GitHub contributions page",
-                "collected_at": collected_at,
+                "source": "GitHub profile page",
+                "collected_at": collected_at
             })
 
-        # ───────────────────────── REPOS / LANG / HOURLY ─────────────────────────
-        repos = requests.get(data["repos_url"], headers=headers, timeout=10)
-        language_counter = Counter()
+        # ---------------- REPOS + LANGUAGES + HOURLY ----------------
+        repos = requests.get(data["repos_url"], headers=headers, timeout=10).json()
+        lang_counter = Counter()
         hourly = [0] * 24
 
-        if repos.status_code == 200:
-            for repo in repos.json():
-                name = repo["name"]
-                lang = repo.get("language") or "Unknown"
-                stars = repo.get("stargazers_count", 0)
-                updated = repo.get("updated_at", "").split("T")[0]
+        for repo in repos:
+            name = repo.get("name")
+            stars = repo.get("stargazers_count", 0)
+            desc = (repo.get("description") or "").replace("\n", " ")
+            lang = repo.get("language") or "Unknown"
+            updated = repo.get("updated_at", "").split("T")[0]
 
-                language_counter[lang] += 1
+            lang_counter[lang] += 1
 
-                signals.append({
-                    "signal_type": "REPO_SUMMARY",
-                    "value": (
-                        f"{name} | Stars: {stars} | "
-                        f"Lang: {lang} | Last Updated: {updated}"
-                    ),
-                    "confidence": "HIGH",
-                    "source": "GitHub",
-                    "collected_at": collected_at,
-                })
-
-                commits = requests.get(
-                    f"{GITHUB_BASE}/repos/{username}/{name}/commits?author={username}&per_page=100",
-                    headers=headers,
-                    timeout=10,
-                )
-                if commits.status_code == 200:
-                    for c in commits.json():
-                        dt = c.get("commit", {}).get("author", {}).get("date")
-                        if dt:
-                            hourly[datetime.strptime(dt, "%Y-%m-%dT%H:%M:%SZ").hour] += 1
-
-        if language_counter:
-            total_lang = sum(language_counter.values())
-            profile = ", ".join(
-                f"{k} {int((v/total_lang)*100)}%"
-                for k, v in language_counter.most_common()
+            add(
+                "REPO_SUMMARY",
+                f"{name} | Stars: {stars} | {desc} | Lang: {lang} | Last Updated: {updated}",
             )
-            signals.append({
-                "signal_type": "LANGUAGE_PROFILE",
-                "value": profile,
-                "confidence": "HIGH",
-                "source": "GitHub",
-                "collected_at": collected_at,
-            })
 
-        signals.append({
-            "signal_type": "CONTRIBUTION_HOURLY_PATTERN",
-            "value": {str(i): v for i, v in enumerate(hourly)},
-            "confidence": "MEDIUM",
-            "source": "GitHub commits",
-            "collected_at": collected_at,
-        })
+            commits = requests.get(
+                f"https://api.github.com/repos/{username}/{name}/commits?author={username}&per_page=100",
+                headers=headers,
+                timeout=10
+            )
+
+            if commits.status_code == 200:
+                for c in commits.json():
+                    dt = c.get("commit", {}).get("author", {}).get("date")
+                    if dt:
+                        hour = datetime.strptime(dt, "%Y-%m-%dT%H:%M:%SZ").hour
+                        hourly[hour] += 1
+
+        if lang_counter:
+            total = sum(lang_counter.values())
+            profile = ", ".join(
+                f"{l} {int((c/total)*100)}%" for l, c in lang_counter.most_common()
+            )
+            add("LANGUAGE_PROFILE", profile)
+
+        add(
+            "CONTRIBUTION_HOURLY_PATTERN",
+            {str(i): v for i, v in enumerate(hourly)},
+            "MEDIUM",
+            "GitHub commits"
+        )
 
     except Exception as e:
         print(f"[!] GitHub plugin error: {e}")
