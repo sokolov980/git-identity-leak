@@ -4,83 +4,84 @@ from datetime import datetime
 from collections import Counter
 from bs4 import BeautifulSoup
 
+GITHUB_UA = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) GitIdentityLeak/1.0"
+}
+
 def collect(username):
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
 
     token = os.environ.get("GITHUB_TOKEN")
-    headers = {"Authorization": f"token {token}"} if token else {}
+    headers = GITHUB_UA.copy()
+    if token:
+        headers["Authorization"] = f"token {token}"
 
-    # -----------------------------
-    # Contribution calendar scrape
-    # -----------------------------
+    # ---------------- BASIC PROFILE ----------------
+    r = requests.get(f"https://api.github.com/users/{username}", headers=headers)
+    if r.status_code != 200:
+        return signals
+
+    data = r.json()
+
+    signals.append({"signal_type":"USERNAME","value":data["login"],"confidence":"HIGH"})
+    signals.append({"signal_type":"IMAGE","value":data["avatar_url"],"confidence":"HIGH"})
+    signals.append({"signal_type":"FOLLOWERS","value":str(data["followers"]),"confidence":"HIGH"})
+    signals.append({"signal_type":"FOLLOWING","value":str(data["following"]),"confidence":"HIGH"})
+    signals.append({"signal_type":"PUBLIC_REPOS","value":str(data["public_repos"]),"confidence":"HIGH"})
+
+    # ---------------- CONTRIBUTIONS (SVG SCRAPE) ----------------
+    contrib_url = f"https://github.com/users/{username}/contributions"
+    resp = requests.get(contrib_url, headers=headers)
+
     daily = []
     yearly = {}
-    weekday_count = 0
-    weekend_count = 0
+    weekday = weekend = 0
 
-    url = f"https://github.com/users/{username}/contributions"
-    r = requests.get(url, headers=headers, timeout=15)
+    if resp.status_code == 200:
+        soup = BeautifulSoup(resp.text, "html.parser")
+        rects = soup.find_all("rect", {"data-date": True})
 
-    if r.status_code == 200:
-        soup = BeautifulSoup(r.text, "html.parser")
-        days = soup.find_all("rect", class_="ContributionCalendar-day")
-
-        for d in days:
-            date = d.get("data-date")
-            count = int(d.get("data-count", 0))
-            if not date:
-                continue
+        for r in rects:
+            date = r["data-date"]
+            count = int(r.get("data-count", 0))
+            dt = datetime.strptime(date, "%Y-%m-%d")
 
             daily.append({"date": date, "count": count})
-
-            dt = datetime.strptime(date, "%Y-%m-%d")
-            year = str(dt.year)
-            yearly[year] = yearly.get(year, 0) + count
+            yearly[dt.year] = yearly.get(dt.year, 0) + count
 
             if dt.weekday() < 5:
-                weekday_count += count
+                weekday += count
             else:
-                weekend_count += count
+                weekend += count
 
-    total = sum(y for y in yearly.values())
+    total = sum(yearly.values())
 
-    # -----------------------------
-    # Signals
-    # -----------------------------
     signals.append({
         "signal_type": "CONTRIBUTION_TOTAL",
         "value": str(total),
-        "confidence": "HIGH",
-        "source": "GitHub",
-        "collected_at": collected_at
+        "confidence": "HIGH"
     })
 
     signals.append({
         "signal_type": "CONTRIBUTION_TIME_PATTERN",
-        "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
-        "confidence": "MEDIUM",
-        "source": "GitHub",
-        "collected_at": collected_at
+        "value": f"Weekdays: {weekday}, Weekends: {weekend}",
+        "confidence": "MEDIUM"
     })
 
-    for year, count in sorted(yearly.items()):
+    for y, c in sorted(yearly.items()):
         signals.append({
             "signal_type": "CONTRIBUTIONS_YEAR",
-            "value": year,
+            "value": str(y),
             "confidence": "HIGH",
-            "source": "GitHub",
-            "collected_at": collected_at,
-            "meta": {"year": year, "count": count}
+            "meta": {"year": y, "count": c}
         })
 
     if daily:
         signals.append({
             "signal_type": "CONTRIBUTIONS_YEARLY_DATES",
             "value": daily,
-            "confidence": "HIGH",
-            "source": "GitHub contributions page",
-            "collected_at": collected_at
+            "confidence": "HIGH"
         })
 
     return signals
