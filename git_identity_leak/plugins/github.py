@@ -1,50 +1,60 @@
 import os
 import requests
 from datetime import datetime
-from collections import Counter
-from bs4 import BeautifulSoup
 
-GITHUB_UA = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_5) GitIdentityLeak/1.0"
-}
+GQL_ENDPOINT = "https://api.github.com/graphql"
 
 def collect(username):
-    signals = []
-    collected_at = datetime.utcnow().isoformat() + "Z"
-
     token = os.environ.get("GITHUB_TOKEN")
-    headers = GITHUB_UA.copy()
-    if token:
-        headers["Authorization"] = f"token {token}"
+    if not token:
+        return []
 
-    # ---------------- BASIC PROFILE ----------------
-    r = requests.get(f"https://api.github.com/users/{username}", headers=headers)
-    if r.status_code != 200:
-        return signals
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
 
-    data = r.json()
+    query = """
+    query($login: String!) {
+      user(login: $login) {
+        contributionsCollection {
+          contributionCalendar {
+            totalContributions
+            weeks {
+              contributionDays {
+                date
+                contributionCount
+                weekday
+              }
+            }
+          }
+        }
+      }
+    }
+    """
 
-    signals.append({"signal_type":"USERNAME","value":data["login"],"confidence":"HIGH"})
-    signals.append({"signal_type":"IMAGE","value":data["avatar_url"],"confidence":"HIGH"})
-    signals.append({"signal_type":"FOLLOWERS","value":str(data["followers"]),"confidence":"HIGH"})
-    signals.append({"signal_type":"FOLLOWING","value":str(data["following"]),"confidence":"HIGH"})
-    signals.append({"signal_type":"PUBLIC_REPOS","value":str(data["public_repos"]),"confidence":"HIGH"})
+    resp = requests.post(
+        GQL_ENDPOINT,
+        headers=headers,
+        json={"query": query, "variables": {"login": username}},
+        timeout=15
+    )
 
-    # ---------------- CONTRIBUTIONS (SVG SCRAPE) ----------------
-    contrib_url = f"https://github.com/users/{username}/contributions"
-    resp = requests.get(contrib_url, headers=headers)
+    if resp.status_code != 200:
+        return []
 
+    data = resp.json()
+    cal = data["data"]["user"]["contributionsCollection"]["contributionCalendar"]
+
+    signals = []
     daily = []
     yearly = {}
     weekday = weekend = 0
 
-    if resp.status_code == 200:
-        soup = BeautifulSoup(resp.text, "html.parser")
-        rects = soup.find_all("rect", {"data-date": True})
-
-        for r in rects:
-            date = r["data-date"]
-            count = int(r.get("data-count", 0))
+    for week in cal["weeks"]:
+        for d in week["contributionDays"]:
+            date = d["date"]
+            count = d["contributionCount"]
             dt = datetime.strptime(date, "%Y-%m-%d")
 
             daily.append({"date": date, "count": count})
@@ -55,11 +65,9 @@ def collect(username):
             else:
                 weekend += count
 
-    total = sum(yearly.values())
-
     signals.append({
         "signal_type": "CONTRIBUTION_TOTAL",
-        "value": str(total),
+        "value": str(cal["totalContributions"]),
         "confidence": "HIGH"
     })
 
@@ -69,19 +77,18 @@ def collect(username):
         "confidence": "MEDIUM"
     })
 
-    for y, c in sorted(yearly.items()):
+    for year, count in sorted(yearly.items()):
         signals.append({
             "signal_type": "CONTRIBUTIONS_YEAR",
-            "value": str(y),
+            "value": str(year),
             "confidence": "HIGH",
-            "meta": {"year": y, "count": c}
+            "meta": {"year": year, "count": count}
         })
 
-    if daily:
-        signals.append({
-            "signal_type": "CONTRIBUTIONS_YEARLY_DATES",
-            "value": daily,
-            "confidence": "HIGH"
-        })
+    signals.append({
+        "signal_type": "CONTRIBUTIONS_YEARLY_DATES",
+        "value": daily,
+        "confidence": "HIGH"
+    })
 
     return signals
