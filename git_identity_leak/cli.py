@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from datetime import datetime
+import calendar
 
 from git_identity_leak.analysis import full_analysis
 from git_identity_leak.graph import build_identity_graph, save_graph_json
@@ -16,14 +17,14 @@ import numpy as np
 
 TRUNCATE_LEN = 120
 
-def pretty_print_signals(signals):
+def pretty_print_signals(signals, temporal_data=None, stylometry_data=None):
     print("\n[DEBUG] Signals:")
     if not signals:
         print("No signals collected.")
         return
 
     headers = ["TYPE", "VALUE", "CONFIDENCE"]
-    widths = [30, TRUNCATE_LEN, 10]
+    widths = [30, 100, 10]
     line = "-" * (sum(widths) + 4)
 
     print(line)
@@ -37,9 +38,10 @@ def pretty_print_signals(signals):
 
     for s in signals:
         stype = s.get("signal_type", "")
-        value = str(s.get("value", ""))
+        value = s.get("value", "")
         conf = s.get("confidence", "")
 
+        # Handle contributions specially
         if stype == "CONTRIBUTION_TOTAL":
             contrib_total = value
             continue
@@ -51,28 +53,39 @@ def pretty_print_signals(signals):
             count = s.get("meta", {}).get("count", 0)
             contrib_years[year] = count
             continue
+        elif stype in ("REPO_SUMMARY", "CONTRIBUTIONS_YEARLY_DATES"):
+            # Don't truncate these
+            print(f"{stype:<{widths[0]}} {str(value):<{widths[1]}} {conf:<{widths[2]}}")
+            continue
         elif stype in ("GITHUB_PAGES", "PRONOUNS", "PROFILE_PLATFORM"):
             extra_info.append((stype, value, conf))
             continue
 
-        # Truncate long values
-        if len(value) > TRUNCATE_LEN:
-            value = value[:TRUNCATE_LEN - 3] + "..."
+        # General truncation
+        if len(str(value)) > TRUNCATE_LEN:
+            value = str(value)[:TRUNCATE_LEN - 3] + "..."
 
         print(f"{stype:<{widths[0]}} {value:<{widths[1]}} {conf:<{widths[2]}}")
 
-    # Print contributions at the end
+    # Contributions
     if contrib_total:
-        print(f"{'CONTRIBUTION_TOTAL':<{widths[0]}} {contrib_total:<{widths[1]}} HIGH")
+        print(f"{'CONTRIBUTION_TOTAL':<{widths[0]}} {contrib_total:<{widths[1]}} {'HIGH':<{widths[2]}}")
     if contrib_pattern:
-        print(f"{'CONTRIBUTION_TIME_PATTERN':<{widths[0]}} {contrib_pattern:<{widths[1]}} MEDIUM")
+        print(f"{'CONTRIBUTION_TIME_PATTERN':<{widths[0]}} {contrib_pattern:<{widths[1]}} {'MEDIUM':<{widths[2]}}")
     for year in sorted(contrib_years.keys()):
-        print(f"{'CONTRIBUTIONS_YEAR':<{widths[0]}} {year}: {contrib_years[year]:<{widths[1]}} HIGH")
+        value = f"{year}: {contrib_years[year]}"
+        print(f"{'CONTRIBUTIONS_YEAR':<{widths[0]}} {value:<{widths[1]}} {'HIGH':<{widths[2]}}")
     for stype, value, conf in extra_info:
-        display_value = value if len(value) <= TRUNCATE_LEN else value[:TRUNCATE_LEN - 3] + "..."
-        print(f"{stype:<{widths[0]}} {display_value:<{widths[1]}} {conf:<{widths[2]}}")
+        print(f"{stype:<{widths[0]}} {value:<{widths[1]}} {conf:<{widths[2]}}")
 
-    print(line)
+    # Temporal data
+    if temporal_data:
+        print("\n[DEBUG] Temporal data:")
+        print(json.dumps(temporal_data, indent=2))
+    # Stylometry data
+    if stylometry_data:
+        print("\n[DEBUG] Stylometry data:")
+        print(json.dumps(stylometry_data, indent=2))
 
 
 def plot_contributions_heatmap(signals, image_dir=None):
@@ -94,12 +107,32 @@ def plot_contributions_heatmap(signals, image_dir=None):
     for d in daily:
         dt = datetime.strptime(d["date"], "%Y-%m-%d")
         week = (dt - start).days // 7
-        heatmap[dt.weekday(), week] = d["count"]
+        # Sunday=0, Monday=1, ..., Saturday=6
+        weekday = (dt.weekday() + 1) % 7  # shift Monday=0 -> Sunday=0
+        heatmap[weekday, week] = d["count"]
 
     plt.figure(figsize=(weeks / 2, 3))
-    sns.heatmap(heatmap, cmap="Greens", cbar=True, linewidths=0.5)
-    plt.yticks(range(7), ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], rotation=0)
+    sns.heatmap(heatmap, cmap="Greens", cbar=True, linewidths=0.5, square=True)
+
+    # Y-axis: show only Mon, Wed, Fri
+    y_labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    plt.yticks([1, 3, 5], ["Mon", "Wed", "Fri"], rotation=0)
     plt.xticks([])
+
+    # X-axis months
+    month_positions = []
+    month_labels = []
+    for m in range(1, 13):
+        try:
+            month_date = datetime(start.year, m, 1)
+            week_index = (month_date - start).days // 7
+            if 0 <= week_index < weeks:
+                month_positions.append(week_index)
+                month_labels.append(calendar.month_abbr[m])
+        except ValueError:
+            continue
+    plt.xticks(month_positions, month_labels, rotation=0, ha='center', fontsize=8, color="black", position=(0.0,1.02))
+
     plt.title("GitHub Contributions")
     plt.tight_layout()
 
@@ -116,7 +149,7 @@ def plot_contributions_heatmap(signals, image_dir=None):
 def main():
     parser = argparse.ArgumentParser(description="Git Identity Leak OSINT Tool")
 
-    # Old full-feature flags
+    # old-style flags
     parser.add_argument("--username", required=True, help="GitHub username")
     parser.add_argument("--check-username", action="store_true", help="Check username validity")
     parser.add_argument("--check-email", action="store_true", help="Check email leaks")
@@ -135,11 +168,14 @@ def main():
         username=args.username,
         image_dir=args.images,
         include_temporal=args.temporal,
-        include_stylometry=args.stylometry
+        include_stylometry=args.stylometry,
+        check_username=args.check_username,
+        check_email=args.check_email,
+        check_posts=args.check_posts,
     )
 
     if args.verbose:
-        pretty_print_signals(signals)
+        pretty_print_signals(signals, temporal_data, stylometry_data)
 
     if args.graph_output:
         graph = build_identity_graph(signals)
