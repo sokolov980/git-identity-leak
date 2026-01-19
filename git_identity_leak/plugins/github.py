@@ -2,16 +2,18 @@ import os
 import requests
 from datetime import datetime
 
-GQL_ENDPOINT = "https://api.github.com/graphql"
+GITHUB_GRAPHQL = "https://api.github.com/graphql"
 
 def collect(username):
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
+        print("[!] GITHUB_TOKEN not set — contributions cannot be fetched.")
         return []
 
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "git-identity-leak"
     }
 
     query = """
@@ -24,7 +26,6 @@ def collect(username):
               contributionDays {
                 date
                 contributionCount
-                weekday
               }
             }
           }
@@ -33,32 +34,51 @@ def collect(username):
     }
     """
 
-    resp = requests.post(
-        GQL_ENDPOINT,
+    r = requests.post(
+        GITHUB_GRAPHQL,
         headers=headers,
         json={"query": query, "variables": {"login": username}},
         timeout=15
     )
 
-    if resp.status_code != 200:
+    if r.status_code != 200:
+        print("[!] GraphQL error:", r.text)
         return []
 
-    data = resp.json()
-    cal = data["data"]["user"]["contributionsCollection"]["contributionCalendar"]
+    data = r.json()
+    calendar = (
+        data.get("data", {})
+        .get("user", {})
+        .get("contributionsCollection", {})
+        .get("contributionCalendar", {})
+    )
 
     signals = []
+    collected_at = datetime.utcnow().isoformat() + "Z"
+
+    total = calendar.get("totalContributions", 0)
+    signals.append({
+        "signal_type": "CONTRIBUTION_TOTAL",
+        "value": str(total),
+        "confidence": "HIGH",
+        "source": "GitHub GraphQL",
+        "collected_at": collected_at,
+    })
+
     daily = []
+    weekday = 0
+    weekend = 0
     yearly = {}
-    weekday = weekend = 0
 
-    for week in cal["weeks"]:
-        for d in week["contributionDays"]:
-            date = d["date"]
-            count = d["contributionCount"]
-            dt = datetime.strptime(date, "%Y-%m-%d")
-
+    for week in calendar.get("weeks", []):
+        for day in week.get("contributionDays", []):
+            date = day["date"]
+            count = day["contributionCount"]
             daily.append({"date": date, "count": count})
-            yearly[dt.year] = yearly.get(dt.year, 0) + count
+
+            dt = datetime.strptime(date, "%Y-%m-%d")
+            year = str(dt.year)
+            yearly[year] = yearly.get(year, 0) + count
 
             if dt.weekday() < 5:
                 weekday += count
@@ -66,29 +86,29 @@ def collect(username):
                 weekend += count
 
     signals.append({
-        "signal_type": "CONTRIBUTION_TOTAL",
-        "value": str(cal["totalContributions"]),
-        "confidence": "HIGH"
-    })
-
-    signals.append({
         "signal_type": "CONTRIBUTION_TIME_PATTERN",
         "value": f"Weekdays: {weekday}, Weekends: {weekend}",
-        "confidence": "MEDIUM"
+        "confidence": "MEDIUM",
+        "source": "GitHub GraphQL",
+        "collected_at": collected_at,
     })
 
-    for year, count in sorted(yearly.items()):
+    for year, count in yearly.items():
         signals.append({
             "signal_type": "CONTRIBUTIONS_YEAR",
-            "value": str(year),
+            "value": year,
             "confidence": "HIGH",
-            "meta": {"year": year, "count": count}
+            "source": "GitHub GraphQL",
+            "collected_at": collected_at,
+            "meta": {"year": year, "count": count},
         })
 
     signals.append({
         "signal_type": "CONTRIBUTIONS_YEARLY_DATES",
         "value": daily,
-        "confidence": "HIGH"
+        "confidence": "HIGH",
+        "source": "GitHub GraphQL",
+        "collected_at": collected_at,
     })
 
     return signals
