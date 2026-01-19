@@ -99,7 +99,7 @@ def plot_contributions_heatmap(signals, image_dir=None):
         weekday = (dt.weekday()+1)%7
         heatmap[weekday, week] = d["count"]
 
-    # PNG
+    # --- PNG heatmap ---
     plt.figure(figsize=(weeks/2,3))
     sns.heatmap(heatmap, cmap="Greens", cbar=True, linewidths=0.5, square=True)
     plt.yticks([1,3,5], ["Mon","Wed","Fri"], rotation=0)
@@ -126,7 +126,7 @@ def plot_contributions_heatmap(signals, image_dir=None):
         plt.show()
     plt.close()
 
-    # SVG
+    # --- Static SVG ---
     svg_path = os.path.join(image_dir,"contributions.svg") if image_dir else "contributions.svg"
     dwg = svgwrite.Drawing(svg_path, profile='tiny', size=(weeks*15, 7*15+20))
     color_levels = ["#ebedf0","#9be9a8","#40c463","#30a14e","#216e39"]
@@ -135,19 +135,9 @@ def plot_contributions_heatmap(signals, image_dir=None):
         for day in range(7):
             count = heatmap[day, week]
             color = color_levels[min(count, len(color_levels)-1)]
-            rect = dwg.rect(insert=(week*15, day*15), size=(13,13), fill="#ebedf0")
-            dwg.add(rect)
-            # Only animate if color changes
-            if color != "#ebedf0":
-                rect.add(dwg.animate(
-                    attributeName="fill",
-                    values=f"#ebedf0;{color}",
-                    dur="1s",
-                    begin=f"{week*7 + day}s",
-                    fill="freeze"
-                ))
+            dwg.add(dwg.rect(insert=(week*15, day*15), size=(13,13), fill=color))
 
-    # Weekday labels
+    # Weekday labels (optional)
     for i, label in enumerate(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]):
         dwg.add(dwg.text(label, insert=(-10, i*15+12), font_size="10px"))
 
