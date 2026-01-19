@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import svgwrite
+from svgwrite.animate import Animate
 
 from git_identity_leak.analysis import full_analysis
 from git_identity_leak.graph import build_identity_graph, save_graph_json
@@ -15,8 +16,8 @@ from git_identity_leak.report import save_report
 
 TRUNCATE_LEN = 120
 
-
 def pretty_print_signals(signals, temporal_data=None, stylometry_data=None):
+    """Nicely print all collected signals"""
     print("\n[DEBUG] Signals:")
     if not signals:
         print("No signals collected.")
@@ -51,7 +52,9 @@ def pretty_print_signals(signals, temporal_data=None, stylometry_data=None):
             contrib_years[year] = count
             continue
         elif stype in ("REPO_SUMMARY", "CONTRIBUTIONS_YEARLY_DATES"):
-            print(f"{stype:<{widths[0]}} {str(value):<{widths[1]}} {conf:<{widths[2]}}")
+            if isinstance(value, list):
+                value = str(value)[:TRUNCATE_LEN] + "..."
+            print(f"{stype:<{widths[0]}} {value:<{widths[1]}} {conf:<{widths[2]}}")
             continue
         elif stype in ("GITHUB_PAGES","PRONOUNS","PROFILE_PLATFORM"):
             extra_info.append((stype,value,conf))
@@ -80,6 +83,7 @@ def pretty_print_signals(signals, temporal_data=None, stylometry_data=None):
 
 
 def plot_contributions_heatmap(signals, image_dir=None):
+    """Plot contributions heatmap as PNG and GitHub-style animated SVG"""
     daily = next((s["value"] for s in signals if s["signal_type"]=="CONTRIBUTIONS_YEARLY_DATES"), None)
     if not daily:
         print("[!] No daily contributions found.")
@@ -94,10 +98,10 @@ def plot_contributions_heatmap(signals, image_dir=None):
     for d in daily:
         dt = datetime.strptime(d["date"],"%Y-%m-%d")
         week = (dt-start).days // 7
-        weekday = (dt.weekday()+1)%7
+        weekday = (dt.weekday()+1)%7  # Sunday-first
         heatmap[weekday, week] = d["count"]
 
-    # Matplotlib heatmap
+    # --- Matplotlib PNG heatmap ---
     plt.figure(figsize=(weeks/2,3))
     sns.heatmap(heatmap, cmap="Greens", cbar=True, linewidths=0.5, square=True)
     plt.yticks([1,3,5], ["Mon","Wed","Fri"], rotation=0)
@@ -115,7 +119,6 @@ def plot_contributions_heatmap(signals, image_dir=None):
     plt.xticks(month_positions, month_labels, rotation=0, ha='center', fontsize=8, position=(0,1.02))
     plt.title("GitHub Contributions")
     plt.tight_layout()
-
     if image_dir:
         os.makedirs(image_dir, exist_ok=True)
         path = os.path.join(image_dir,"contributions_heatmap.png")
@@ -125,15 +128,40 @@ def plot_contributions_heatmap(signals, image_dir=None):
         plt.show()
     plt.close()
 
-    # SVG output
+    # --- SVG GitHub-style animated graph ---
     svg_path = os.path.join(image_dir,"contributions.svg") if image_dir else "contributions.svg"
-    dwg = svgwrite.Drawing(svg_path, profile='tiny', size=(weeks*15, 120))
-    color_levels = [ "#ebedf0","#9be9a8","#40c463","#30a14e","#216e39" ]
+    dwg = svgwrite.Drawing(svg_path, profile='tiny', size=(weeks*15, 7*15+20))
+    color_levels = ["#ebedf0","#9be9a8","#40c463","#30a14e","#216e39"]
+
     for week in range(weeks):
         for day in range(7):
             count = heatmap[day, week]
             color = color_levels[min(count, len(color_levels)-1)]
-            dwg.add(dwg.Rect(insert=(week*15, day*15), size=(13,13), fill=color))
+            rect = dwg.rect(insert=(week*15, day*15), size=(13,13), fill="#ebedf0")
+            dwg.add(rect)
+            # animate fill to actual color
+            rect.add(dwg.animate(
+                attributeName="fill",
+                values=f"#ebedf0;{color}",
+                dur="1s",
+                begin=f"{week*7 + day}s",
+                fill="freeze"
+            ))
+
+    # Add weekday labels
+    for i, label in enumerate(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]):
+        dwg.add(dwg.text(label, insert=(-10, i*15+12), font_size="10px"))
+
+    # Add month labels
+    for m in range(1,13):
+        try:
+            month_date = datetime(start.year, m, 1)
+            week_index = (month_date-start).days // 7
+            if 0<=week_index<weeks:
+                dwg.add(dwg.text(calendar.month_abbr[m], insert=(week_index*15, -2), font_size="10px"))
+        except ValueError:
+            continue
+
     dwg.save()
     print(f"[+] SVG contributions graph saved to {svg_path}")
 
