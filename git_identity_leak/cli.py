@@ -81,9 +81,7 @@ def pretty_print_signals(signals, temporal_data=None, stylometry_data=None):
         print("\n[DEBUG] Stylometry data:")
         print(stylometry_data)
 
-
 def plot_contributions_heatmap(signals, image_dir=None):
-    """Plot contributions heatmap as PNG and GitHub-style animated SVG"""
     daily = next((s["value"] for s in signals if s["signal_type"]=="CONTRIBUTIONS_YEARLY_DATES"), None)
     if not daily:
         print("[!] No daily contributions found.")
@@ -98,10 +96,10 @@ def plot_contributions_heatmap(signals, image_dir=None):
     for d in daily:
         dt = datetime.strptime(d["date"],"%Y-%m-%d")
         week = (dt-start).days // 7
-        weekday = (dt.weekday()+1)%7  # Sunday-first
+        weekday = (dt.weekday()+1)%7
         heatmap[weekday, week] = d["count"]
 
-    # --- Matplotlib PNG heatmap ---
+    # PNG
     plt.figure(figsize=(weeks/2,3))
     sns.heatmap(heatmap, cmap="Greens", cbar=True, linewidths=0.5, square=True)
     plt.yticks([1,3,5], ["Mon","Wed","Fri"], rotation=0)
@@ -128,7 +126,7 @@ def plot_contributions_heatmap(signals, image_dir=None):
         plt.show()
     plt.close()
 
-    # --- SVG GitHub-style animated graph ---
+    # SVG
     svg_path = os.path.join(image_dir,"contributions.svg") if image_dir else "contributions.svg"
     dwg = svgwrite.Drawing(svg_path, profile='tiny', size=(weeks*15, 7*15+20))
     color_levels = ["#ebedf0","#9be9a8","#40c463","#30a14e","#216e39"]
@@ -139,20 +137,21 @@ def plot_contributions_heatmap(signals, image_dir=None):
             color = color_levels[min(count, len(color_levels)-1)]
             rect = dwg.rect(insert=(week*15, day*15), size=(13,13), fill="#ebedf0")
             dwg.add(rect)
-            # animate fill to actual color
-            rect.add(dwg.animate(
-                attributeName="fill",
-                values=f"#ebedf0;{color}",
-                dur="1s",
-                begin=f"{week*7 + day}s",
-                fill="freeze"
-            ))
+            # Only animate if color changes
+            if color != "#ebedf0":
+                rect.add(dwg.animate(
+                    attributeName="fill",
+                    values=f"#ebedf0;{color}",
+                    dur="1s",
+                    begin=f"{week*7 + day}s",
+                    fill="freeze"
+                ))
 
-    # Add weekday labels
+    # Weekday labels
     for i, label in enumerate(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]):
         dwg.add(dwg.text(label, insert=(-10, i*15+12), font_size="10px"))
 
-    # Add month labels
+    # Month labels
     for m in range(1,13):
         try:
             month_date = datetime(start.year, m, 1)
@@ -164,7 +163,6 @@ def plot_contributions_heatmap(signals, image_dir=None):
 
     dwg.save()
     print(f"[+] SVG contributions graph saved to {svg_path}")
-
 
 def main():
     parser = argparse.ArgumentParser(description="Git Identity Leak OSINT Tool")
