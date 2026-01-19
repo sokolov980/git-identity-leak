@@ -1,79 +1,37 @@
 import os
 import requests
 from datetime import datetime
-
-GITHUB_GRAPHQL = "https://api.github.com/graphql"
+from collections import Counter
+from bs4 import BeautifulSoup
 
 def collect(username):
-    token = os.environ.get("GITHUB_TOKEN")
-    if not token:
-        print("[!] GITHUB_TOKEN not set — contributions cannot be fetched.")
-        return []
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "User-Agent": "git-identity-leak"
-    }
-
-    query = """
-    query($login: String!) {
-      user(login: $login) {
-        contributionsCollection {
-          contributionCalendar {
-            totalContributions
-            weeks {
-              contributionDays {
-                date
-                contributionCount
-              }
-            }
-          }
-        }
-      }
-    }
-    """
-
-    r = requests.post(
-        GITHUB_GRAPHQL,
-        headers=headers,
-        json={"query": query, "variables": {"login": username}},
-        timeout=15
-    )
-
-    if r.status_code != 200:
-        print("[!] GraphQL error:", r.text)
-        return []
-
-    data = r.json()
-    calendar = (
-        data.get("data", {})
-        .get("user", {})
-        .get("contributionsCollection", {})
-        .get("contributionCalendar", {})
-    )
-
     signals = []
     collected_at = datetime.utcnow().isoformat() + "Z"
 
-    total = calendar.get("totalContributions", 0)
-    signals.append({
-        "signal_type": "CONTRIBUTION_TOTAL",
-        "value": str(total),
-        "confidence": "HIGH",
-        "source": "GitHub GraphQL",
-        "collected_at": collected_at,
-    })
+    token = os.environ.get("GITHUB_TOKEN")
+    headers = {"Authorization": f"token {token}"} if token else {}
 
+    # -----------------------------
+    # Contribution calendar scrape
+    # -----------------------------
     daily = []
-    weekday = 0
-    weekend = 0
     yearly = {}
+    weekday_count = 0
+    weekend_count = 0
 
-    for week in calendar.get("weeks", []):
-        for day in week.get("contributionDays", []):
-            date = day["date"]
-            count = day["contributionCount"]
+    url = f"https://github.com/users/{username}/contributions"
+    r = requests.get(url, headers=headers, timeout=15)
+
+    if r.status_code == 200:
+        soup = BeautifulSoup(r.text, "html.parser")
+        days = soup.find_all("rect", class_="ContributionCalendar-day")
+
+        for d in days:
+            date = d.get("data-date")
+            count = int(d.get("data-count", 0))
+            if not date:
+                continue
+
             daily.append({"date": date, "count": count})
 
             dt = datetime.strptime(date, "%Y-%m-%d")
@@ -81,34 +39,48 @@ def collect(username):
             yearly[year] = yearly.get(year, 0) + count
 
             if dt.weekday() < 5:
-                weekday += count
+                weekday_count += count
             else:
-                weekend += count
+                weekend_count += count
+
+    total = sum(y for y in yearly.values())
+
+    # -----------------------------
+    # Signals
+    # -----------------------------
+    signals.append({
+        "signal_type": "CONTRIBUTION_TOTAL",
+        "value": str(total),
+        "confidence": "HIGH",
+        "source": "GitHub",
+        "collected_at": collected_at
+    })
 
     signals.append({
         "signal_type": "CONTRIBUTION_TIME_PATTERN",
-        "value": f"Weekdays: {weekday}, Weekends: {weekend}",
+        "value": f"Weekdays: {weekday_count}, Weekends: {weekend_count}",
         "confidence": "MEDIUM",
-        "source": "GitHub GraphQL",
-        "collected_at": collected_at,
+        "source": "GitHub",
+        "collected_at": collected_at
     })
 
-    for year, count in yearly.items():
+    for year, count in sorted(yearly.items()):
         signals.append({
             "signal_type": "CONTRIBUTIONS_YEAR",
             "value": year,
             "confidence": "HIGH",
-            "source": "GitHub GraphQL",
+            "source": "GitHub",
             "collected_at": collected_at,
-            "meta": {"year": year, "count": count},
+            "meta": {"year": year, "count": count}
         })
 
-    signals.append({
-        "signal_type": "CONTRIBUTIONS_YEARLY_DATES",
-        "value": daily,
-        "confidence": "HIGH",
-        "source": "GitHub GraphQL",
-        "collected_at": collected_at,
-    })
+    if daily:
+        signals.append({
+            "signal_type": "CONTRIBUTIONS_YEARLY_DATES",
+            "value": daily,
+            "confidence": "HIGH",
+            "source": "GitHub contributions page",
+            "collected_at": collected_at
+        })
 
     return signals
